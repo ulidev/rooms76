@@ -1,3 +1,3 @@
 # rooms76 GitHub Pages
 
-`scanner-test/`: throwaway Mini App for the scanning field test (#10).
+Static pages for rooms76, such as the camera scanner Mini App.
