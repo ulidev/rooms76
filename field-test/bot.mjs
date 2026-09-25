@@ -65,6 +65,16 @@ async function lookup(code) {
   return result;
 }
 
+// Resident memory, to check a 256 MB Fly.io machine is enough (from ulidev/rooms76#11).
+const mb = (bytes) => Math.round(bytes / 2 ** 20);
+let peakRss = process.memoryUsage().rss;
+setInterval(() => (peakRss = Math.max(peakRss, process.memoryUsage().rss)), 250).unref();
+function memory() {
+  const { rss, heapUsed, external } = process.memoryUsage();
+  peakRss = Math.max(peakRss, rss);
+  return { rssMb: mb(rss), peakRssMb: mb(peakRss), heapMb: mb(heapUsed), externalMb: mb(external) };
+}
+
 function log(row) {
   appendFileSync(RESULTS, JSON.stringify({ at: new Date().toISOString(), ...row }) + "\n");
 }
@@ -146,7 +156,7 @@ bot.on("message:photo", async (ctx) => {
   const hit = results.find((r) => r.isValid && validGtin(r.text));
   const code = hit ? toGtin13(hit.text) : null;
   const lk = code ? await lookup(code) : null;
-  log({ kind: "photo", item, code, photo: { file: name, width: size.width, height: size.height, bytes: bytes.length, decodeMs }, lookup: lk });
+  log({ kind: "photo", item, code, photo: { file: name, width: size.width, height: size.height, bytes: bytes.length, decodeMs }, lookup: lk, memory: memory() });
 
   await ctx.reply(
     code
@@ -192,10 +202,11 @@ bot.command("report", async (ctx) => {
     liveTimes.length ? `Live time-to-read: median ${(liveTimes[Math.floor(liveTimes.length / 2)] / 1000).toFixed(1)} s, max ${(liveTimes.at(-1) / 1000).toFixed(1)} s` : "Live time-to-read: —",
     `Camera prompt shown: ${pct(prompts, liveOk.length)} of successful live opens`,
     `Distinct codes looked up: ${codes.size}; found: ${pct(found.length, codes.size)} ${JSON.stringify(types)}`,
+    (({ rssMb, peakRssMb }) => `Bot memory (RSS): now ${rssMb} MB, peak ${peakRssMb} MB since start (budget: 256 MB machine)`)(memory()),
   ];
   await ctx.reply(lines.join("\n"));
 });
 
 bot.catch((err) => console.error(err));
-console.log(`Field-test bot running. Scanner page: ${SCANNER_URL}`);
+console.log(`Field-test bot running. Scanner page: ${SCANNER_URL}. RSS at start: ${memory().rssMb} MB`);
 bot.start();
