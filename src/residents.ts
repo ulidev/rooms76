@@ -2,21 +2,30 @@
 import { and, eq, gte, isNull, lte, or } from "drizzle-orm";
 import { dateIn, type Clock } from "./clock.ts";
 import type { Db } from "./db/database.ts";
-import { persons, stays } from "./db/schema.ts";
+import { persons, rooms, stays } from "./db/schema.ts";
+
+export interface Resident {
+  name: string;
+  roomName: string;
+}
 
 export interface Residents {
-  /** A person is a Resident only while they have a current Stay (move-in and move-out days included). */
-  isResident(telegramId: number): boolean;
+  /**
+   * The Resident with this Telegram id, or null when they aren't one. A person is a
+   * Resident only while they have a current Stay (move-in and move-out days included).
+   */
+  current(telegramId: number): Resident | null;
 }
 
 export function createResidents(db: Db, clock: Clock, apartmentTimeZone: string): Residents {
   return {
-    isResident(telegramId) {
+    current(telegramId) {
       const today = dateIn(apartmentTimeZone, clock.now());
-      const currentStay = db
-        .select({ id: stays.id })
+      const resident = db
+        .select({ name: persons.name, roomName: rooms.name })
         .from(stays)
         .innerJoin(persons, eq(persons.id, stays.personId))
+        .innerJoin(rooms, eq(rooms.id, stays.roomId))
         .where(
           and(
             eq(persons.telegramId, telegramId),
@@ -25,7 +34,7 @@ export function createResidents(db: Db, clock: Clock, apartmentTimeZone: string)
           ),
         )
         .get();
-      return currentStay !== undefined;
+      return resident ?? null;
     },
   };
 }

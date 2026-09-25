@@ -14,3 +14,11 @@ export function dateIn(timeZone: string, instant: Date): CalendarDate {
     instant,
   );
 }
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** A calendar date as people read it, e.g. "26 Sep 2026". */
+export function formatDate(date: CalendarDate): string {
+  const [year, month, day] = date.split("-").map(Number);
+  return `${day} ${MONTHS[month! - 1]} ${year}`;
+}

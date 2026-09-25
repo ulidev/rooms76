@@ -2,6 +2,7 @@
 // with `npm run db:generate` and committed; they run automatically at startup.
 import { sql } from "drizzle-orm";
 import { check, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import type { ChatState } from "../chat-states.ts";
 
 export const rooms = sqliteTable("rooms", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -35,3 +36,9 @@ export const stays = sqliteTable(
   },
   (table) => [check("move_out_not_before_move_in", sql`${table.moveOut} IS NULL OR ${table.moveOut} >= ${table.moveIn}`)],
 );
+
+/** Where each private chat stands in a multi-step flow, so a restart doesn't drop a half-finished flow. */
+export const chatStates = sqliteTable("chat_states", {
+  chatId: integer("chat_id").primaryKey(),
+  state: text("state", { mode: "json" }).$type<ChatState>().notNull(),
+});

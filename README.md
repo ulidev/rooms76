@@ -18,7 +18,11 @@ The bot is configured only through environment variables. If any is missing or i
 
 The database lives at `/data/rooms76.sqlite`; mount a persistent volume at `/data`. Migrations run automatically at startup, and the bot refuses to start on a database migrated by a newer version.
 
-**Finding your Telegram user id:** send `/start` to your bot. It logs `/start from unknown user <id> (<name>)`.
+## First run
+
+Send `/start` to your bot. As the Operator you become the first Admin, and the bot walks you through setup: type the Rooms (their order becomes the Room Order), then pick your own Room. Linking the Apartment Group and inviting the other Residents can wait.
+
+**Finding your Telegram user id:** if the bot tells you to ask an Admin for an Invite instead, `OPERATOR_TELEGRAM_ID` is wrong. The bot logs `/start from unknown user <id> (<name>)` with your real id.
 
 ## Development
 
