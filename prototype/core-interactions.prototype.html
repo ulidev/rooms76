@@ -1,0 +1,795 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway, do not ship.
+  Question (issue #7): what should the four core interactions look like in Telegram?
+  Plan: three structurally different variants of the bot's private chat (A: commands, B: home & item cards,
+  C: shop mode), switchable via ?variant=A|B|C, with the Apartment Group and the domain state beside them.
+  Run: open this file in a browser. State lives in memory; switching variant resets it.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>rooms76 prototype · core interactions</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; background: #e6eaee; color: #1b1f23; display: flex; flex-direction: column; }
+  .banner { padding: 8px 16px; background: #fff3c4; border-bottom: 1px solid #e5d48a; font-size: 13px; }
+  .banner b.v { font-size: 15px; }
+  .banner details { margin-top: 4px; }
+  .banner ol { margin: 4px 0 0; padding-left: 20px; columns: 2; column-gap: 32px; }
+  main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 430px) minmax(300px, 380px) 1fr; gap: 14px; padding: 14px 14px 70px; }
+  .phone { position: relative; display: flex; flex-direction: column; min-height: 0; border-radius: 14px; overflow: hidden; background: #fff; box-shadow: 0 2px 10px #0002; }
+  .phone .top { background: #517da2; color: #fff; padding: 9px 12px; font-weight: 600; }
+  .phone .top small { display: block; font-weight: 400; opacity: .8; }
+  .msgs { flex: 1; overflow: auto; background: #a9c39a; padding: 10px; }
+  .row { display: flex; margin: 5px 0 2px; }
+  .row.me { justify-content: flex-end; }
+  .bubble { max-width: 88%; background: #fff; border-radius: 12px; padding: 6px 9px 4px; box-shadow: 0 1px 1px #0003; }
+  .me .bubble { background: #effdde; }
+  .meta { font-size: 11px; color: #8a978a; text-align: right; }
+  .chosen { font-size: 12px; color: #3a8a55; margin-top: 3px; }
+  .kb { max-width: 88%; display: flex; flex-direction: column; gap: 3px; margin: 3px 0 8px; }
+  .kbrow { display: flex; gap: 3px; }
+  .kb button { flex: 1; background: #3d5e44b0; color: #fff; border: 0; border-radius: 8px; padding: 7px 6px; font: inherit; font-size: 13px; cursor: pointer; }
+  .kb button:hover { background: #2d4e34d0; }
+  .ph { width: 230px; height: 120px; background: #f1f3f5; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 2px 0 5px; }
+  .ph .em { font-size: 48px; line-height: 1.1; }
+  .ph span { font-size: 11px; color: #667; text-align: center; padding: 2px 6px 0; }
+  .bars { width: 140px; height: 56px; background: repeating-linear-gradient(90deg, #111 0 2px, #fff 2px 4px, #111 4px 5px, #fff 5px 8px, #111 8px 11px, #fff 11px 13px); }
+  .album { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  .album .ph { width: auto; height: 100px; }
+  .mention { color: #2a7ab8; }
+  .row.service { justify-content: center; }
+  .service .bubble { background: #0000004d; color: #fff; font-size: 12px; box-shadow: none; }
+  .service .meta { display: none; }
+  #miniapp { position: absolute; inset: 40px 0 0; background: #111; color: #fff; display: flex; flex-direction: column; z-index: 6; border-radius: 14px 14px 0 0; }
+  #miniapp[hidden] { display: none; }
+  .ma-top { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; font-weight: 600; }
+  .ma-top button { background: #333; color: #fff; border: 0; border-radius: 999px; width: 28px; height: 28px; cursor: pointer; }
+  .viewfinder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(#3a3f38, #151715); gap: 12px; }
+  .viewfinder .frame { width: 70%; height: 110px; border: 3px solid #fff; border-radius: 12px; box-shadow: 0 0 0 999px #0005; }
+  .viewfinder .frame.ok { border-color: #4cd964; }
+  .viewfinder .hint { font-size: 13px; opacity: .85; }
+  .ma-list { background: #222; padding: 8px; }
+  .ma-list .h { font-size: 11px; opacity: .6; padding: 2px 6px 6px; }
+  .ma-list button { display: block; width: 100%; text-align: left; margin: 3px 0; padding: 8px 10px; border: 0; border-radius: 8px; background: #333; color: #fff; cursor: pointer; font: inherit; }
+  .ma-foot { font-size: 12px; opacity: .6; padding: 8px 12px 12px; }
+  code { background: #eef; padding: 0 3px; border-radius: 3px; font-size: 12px; }
+  .composer { position: relative; display: flex; gap: 6px; padding: 8px; background: #fff; border-top: 1px solid #ddd; }
+  .composer input { flex: 1; border: 1px solid #ccd; border-radius: 18px; padding: 7px 12px; font: inherit; }
+  .composer > button { border: 0; background: #eef2f6; border-radius: 18px; padding: 0 11px; cursor: pointer; font: inherit; }
+  .composer > button.send { background: #517da2; color: #fff; }
+  .replykb { display: flex; flex-direction: column; gap: 4px; padding: 6px; background: #eceff2; }
+  .replykb .r { display: flex; gap: 4px; }
+  .replykb button { flex: 1; padding: 10px; border: 0; border-radius: 6px; background: #fff; box-shadow: 0 1px 1px #0002; cursor: pointer; font: inherit; }
+  .pop { position: absolute; bottom: 50px; left: 8px; background: #fff; border-radius: 10px; box-shadow: 0 4px 18px #0004; padding: 4px; min-width: 290px; z-index: 5; }
+  .pop .h { font-size: 11px; color: #889; padding: 4px 10px; }
+  .pop button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; cursor: pointer; font: inherit; border-radius: 6px; }
+  .pop button:hover { background: #eef2ff; }
+  .state { overflow: auto; background: #fff; border-radius: 14px; padding: 10px 14px; box-shadow: 0 2px 10px #0002; }
+  .state h3 { margin: 12px 0 4px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: #667; }
+  .state table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  .state td, .state th { border-bottom: 1px solid #eee; padding: 4px 6px; text-align: left; vertical-align: top; }
+  .state .sim button { margin: 2px 4px 2px 0; border: 1px solid #ccd; background: #f7f8fa; border-radius: 6px; padding: 5px 8px; cursor: pointer; font: inherit; font-size: 12px; }
+  .muted { color: #889; }
+  #switcher { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: #111; color: #fff; border-radius: 999px; padding: 6px 8px; display: flex; align-items: center; gap: 12px; box-shadow: 0 6px 20px #0006; z-index: 10; font-weight: 600; }
+  #switcher button { background: #333; color: #fff; border: 0; border-radius: 999px; width: 32px; height: 32px; font-size: 18px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="banner" id="banner"></div>
+<main>
+  <section class="phone">
+    <div class="top">rooms76 bot<small>private chat · you are Ferran, Room 2</small></div>
+    <div class="msgs" id="priv"></div>
+    <div id="miniapp" hidden></div>
+    <div id="replykb"></div>
+    <div class="composer">
+      <button id="menuBtn" title="Bot menu">☰</button>
+      <button id="clipBtn" title="Send a photo">📎</button>
+      <input id="input" placeholder="Message" autocomplete="off">
+      <button class="send" id="sendBtn">➤</button>
+      <div class="pop" id="pop" hidden></div>
+    </div>
+  </section>
+  <section class="phone">
+    <div class="top">Apartment Group<small>Lena, Ferran, Tomás, Aiko · rooms76 bot</small></div>
+    <div class="msgs" id="group"></div>
+  </section>
+  <section class="state" id="state"></section>
+</main>
+<div id="switcher"><button id="prev">‹</button><span id="vlabel"></span><button id="next">›</button></div>
+
+<script>
+// ───────────────────────── domain (in memory) ─────────────────────────
+const ROOMS = [
+  { id: 1, name: 'Room 1', who: 'Lena', handle: 'lena', admin: true },
+  { id: 2, name: 'Room 2', who: 'Ferran', handle: 'ferran' },
+  { id: 3, name: 'Room 3', who: 'Tomás', handle: 'tomas' },
+  { id: 4, name: 'Room 4', who: 'Aiko', handle: 'aiko' },
+];
+const ME = 2;
+const SAMPLES = [
+  { label: 'Barcode · K-Classic kitchen paper (known)', code: '4063367152113' },
+  { label: 'Barcode · Fairy Original (known, not the Agreed Product)', code: '8001090621337' },
+  { label: 'Barcode · new, found in Open Food Facts', code: '4337185375307' },
+  { label: 'Barcode · new, not in Open Food Facts', code: '4063367999015' },
+  { label: 'Blurry barcode (won’t decode)', code: null },
+  { label: 'Photo of a product on the shelf', code: null, picture: true },
+];
+const OFF = { '4337185375307': { name: 'K-Classic Müllbeutel 35 l, 40 Stück', emoji: '🗑️' } };
+const PRESETS = [['~1 week', 7], ['~2 weeks', 14], ['~1 month', 30], ['~3 months', 90], ['Skip', null]];
+
+function seed() {
+  return {
+    day: 0, pseq: 1, iseq: 0,
+    items: [
+      { id: 'kp', name: 'Kitchen paper', counts: { 1: 2, 2: 1, 3: 2, 4: 2 }, start: 1, excluded: [], runOut: { by: 1, day: -1 }, last: 12, expected: 10, agreed: 'p1' },
+      { id: 'bb', name: 'Bin bags', counts: {}, start: null, excluded: [], runOut: { by: 3, day: 0 }, last: null, expected: null, agreed: null },
+      { id: 'ds', name: 'Dish soap', counts: { 1: 1, 2: 1, 3: 1, 4: 0 }, start: 1, excluded: [], runOut: null, last: 27, expected: 30, agreed: 'p2' },
+      { id: 'dw', name: 'Dishwasher tabs', counts: { 1: 1, 2: 1, 3: 0, 4: 0 }, start: 1, excluded: [], runOut: null, last: 17, expected: 21, agreed: null },
+      { id: 'tp', name: 'Toilet paper', counts: { 1: 2, 2: 2, 3: 2, 4: 1 }, start: 1, excluded: [], runOut: null, last: 3, expected: 14, agreed: 'p4' },
+      { id: 'cf', name: 'Coffee', counts: { 1: 1, 2: 1, 3: 1 }, start: 1, excluded: [4], runOut: null, last: 6, expected: 14, agreed: 'p7' },
+    ],
+    products: [
+      { id: 'p1', short: 'K-Classic, 4 rolls', name: 'K-Classic kitchen paper, 4 rolls', item: 'kp', barcode: '4063367152113', photo: '🧻' },
+      { id: 'p2', short: 'K-Classic lemon, 500 ml', name: 'K-Classic dish soap lemon, 500 ml', item: 'ds', barcode: '4063367108011', photo: '🍋' },
+      { id: 'p3', short: 'Fairy, 450 ml', name: 'Fairy Original, 450 ml', item: 'ds', barcode: '8001090621337', photo: '🧴' },
+      { id: 'p4', short: 'K-Classic 3-ply, 8 rolls', name: 'K-Classic toilet paper 3-ply, 8 rolls', item: 'tp', barcode: '4063367140011', photo: '🧻' },
+      { id: 'p5', short: 'Somat, 57', name: 'Somat Classic tabs, 57', item: 'dw', barcode: '4015000961236', photo: '🟦' },
+      { id: 'p6', short: 'K-Classic, 40', name: 'K-Classic dishwasher tabs, 40', item: 'dw', barcode: '4063367120013', photo: '🟩' },
+      { id: 'p7', short: 'Jacobs Krönung, 500 g', name: 'Jacobs Krönung beans, 500 g', item: 'cf', barcode: '4000508074711', photo: '☕' },
+      { id: 'p8', short: 'loose roll', name: 'Bin bags 35 l, loose roll', item: 'bb', barcode: null, photo: null },
+    ],
+    purchases: [{ id: 1, item: 'tp', room: ME, product: 'p4', day: -3, prevLast: 17, prevRunOut: null, first: false, undone: false }],
+    pending: [], pings: [],
+  };
+}
+
+const room = id => ROOMS.find(r => r.id === id);
+const item = id => S.items.find(i => i.id === id);
+const prod = id => S.products.find(p => p.id === id);
+const productsOf = it => S.products.filter(p => p.item === it.id && !p.retired);
+const pphoto = p => p && p.photo ? { emoji: p.photo, label: p.name } : null;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const ago = d => d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`;
+const tag = id => id === ME ? 'Room 2 (you)' : `${room(id).name} · ${room(id).who}`;
+const gtag = id => `${room(id).name} · <span class="mention">@${room(id).handle}</span>`;
+
+function order(it) {
+  if (it.start == null) return null;
+  const n = ROOMS.length, s = ROOMS.findIndex(r => r.id === it.start);
+  const pos = id => (ROOMS.findIndex(r => r.id === id) - s + n) % n;
+  return ROOMS.map(r => r.id).filter(id => !it.excluded.includes(id))
+    .sort((a, b) => (it.counts[a] || 0) - (it.counts[b] || 0) || pos(a) - pos(b));
+}
+const turn = it => { const o = order(it); return o ? o[0] : null; };
+
+function urgency(it) {
+  if (it.runOut) return { lvl: 3, label: 'Run Out', icon: '🔴', score: S.day - it.runOut.day };
+  if (it.last == null || !it.expected) return { lvl: 1, label: 'Not yet', icon: '⚪', score: -1, noEst: true };
+  const r = it.last / it.expected;
+  return r >= 0.75 ? { lvl: 2, label: 'Due soon', icon: '🟠', score: r } : { lvl: 1, label: 'Not yet', icon: '⚪', score: r };
+}
+const sorted = () => S.items.slice().sort((a, b) => { const ua = urgency(a), ub = urgency(b); return ub.lvl - ua.lvl || ub.score - ua.score; });
+
+function myPos(it) {
+  if (it.excluded.includes(ME)) return 'excluded';
+  const o = order(it);
+  if (!o) return 'anyone';
+  const i = o.indexOf(ME);
+  return i === 0 ? 'turn' : i === 1 ? 'next' : 'later';
+}
+function posTxt(it) {
+  const p = myPos(it), o = order(it);
+  if (p === 'turn') return '<b>your Turn</b>';
+  if (p === 'anyone') return 'no Turn yet — anyone can buy';
+  if (p === 'excluded') return 'you’re excluded';
+  return `Turn: ${tag(o[0])}${p === 'next' ? ' · you’re next' : ''}`;
+}
+function shortPos(it) {
+  const p = myPos(it);
+  return { turn: 'your Turn', next: 'you’re next', anyone: 'anyone', excluded: 'excluded' }[p] || `${room(turn(it)).who}’s Turn`;
+}
+const lastMine = it => S.purchases.slice().reverse().find(p => p.item === it.id && p.room === ME && !p.undone);
+const canRetract = it => it.runOut && (it.runOut.by === ME || room(ME).admin);
+
+// Notifications (after issue #7 feedback): the Apartment Group only gets Run Outs and their resolution
+// (bought, retracted, or reopened by an undo). Personal alerts go to the private chat of the Turn's Residents.
+function ping(rid, m) {
+  if (rid === ME) { say(m); flowMsg = null; }
+  else S.pings.push({ to: rid, text: m.text, day: S.day });
+}
+function doPurchase(it, rid, pid) {
+  const first = it.start == null, had = first ? null : turn(it), cleared = !!it.runOut;
+  const rec = { id: ++S.pseq, item: it.id, room: rid, product: pid || null, day: S.day, prevLast: it.last, prevRunOut: it.runOut, first, undone: false };
+  if (first) it.start = rid;
+  it.counts[rid] = (it.counts[rid] || 0) + 1; it.last = 0; it.runOut = null;
+  S.purchases.push(rec);
+  const out = !first && had !== rid, next = turn(it);
+  if (cleared) group(`✅ <b>${it.name}</b> bought by ${room(rid).who}`);
+  if (next !== rid && next !== had) ping(next, { text: `🔁 ${room(rid).who} bought <b>${it.name}</b>. It’s now your Turn for it.` });
+  return { rec, first, out, had, cleared };
+}
+function doUndo(it, rec) {
+  rec.undone = true;
+  it.counts[rec.room]--; it.last = rec.prevLast; it.runOut = rec.prevRunOut;
+  if (rec.first) { it.start = null; it.counts = {}; }
+  if (rec.prevRunOut) group(`⚠️ <b>${it.name}</b> is out again — ${room(rec.room).who} undid their Purchase.`);
+}
+function doRunOut(it, rid) {
+  it.runOut = { by: rid, day: S.day };
+  const t = turn(it), ag = it.agreed && prod(it.agreed);
+  group(`⚠️ <b>${it.name}</b> ran out\n${t ? `Turn: ${room(t).name} · ${room(t).who}` : 'No Turn yet — anyone can buy it'}${ag ? `\n⭐ ${ag.name}` : ''}`);
+  if (t && t !== rid) ping(t, { text: `⚠️ <b>${it.name}</b> ran out and it’s your Turn.${ag ? `\n⭐ ${ag.name}` : ''}`, photo: pphoto(ag),
+    buttons: [[btn('✅ I bought it', () => recordFlow(it, ag ? ag.id : undefined)), btn('A different Product', () => recordFlow(it))]] });
+}
+function doRetract(it) {
+  it.runOut = null;
+  group(`↩️ <b>${it.name}</b> hasn’t run out after all — retracted by ${room(ME).who}`);
+}
+function doSetAgreed(it, pid) { it.agreed = pid; }
+
+// ───────────────────────── chat engine ─────────────────────────
+let S, PRIV, GROUP, flowMsg, seq, clock, V, VKEY;
+const btn = (t, go, keep) => ({ t, go, keep });
+const fresh = fn => () => { flowMsg = null; fn(); };
+function now() { clock++; return `${String(Math.floor(clock / 60)).padStart(2, '0')}:${String(clock % 60).padStart(2, '0')}`; }
+function say(m) { const msg = { id: ++seq, from: 'bot', time: now(), ...m }; PRIV.push(msg); flowMsg = msg; return msg; }
+function step(m, opts = {}) {
+  if (S.flash) { m = { ...m, text: `${S.flash}\n\n${m.text || ''}` }; S.flash = null; }
+  const edit = opts.edit ?? V.mode === 'edit';
+  if (edit && flowMsg) {
+    Object.assign(flowMsg, { text: m.text || '', photo: m.photo || null, album: m.album || null, buttons: m.buttons || null, chosen: null, edited: true });
+    return flowMsg;
+  }
+  return say(m);
+}
+function group(text, photo) { GROUP.push({ id: ++seq, from: 'bot', text, photo, time: now() }); }
+const cancel = () => step({ text: 'Cancelled.' });
+
+function userText(txt) {
+  if (!txt.trim()) return;
+  PRIV.push({ id: ++seq, from: 'me', text: esc(txt), time: now() });
+  flowMsg = null;
+  const aw = S.awaiting;
+  if (aw && aw.text) { S.awaiting = null; aw.text(txt.trim()); }
+  else { S.awaiting = null; txt.startsWith('/') ? V.command(txt.slice(1).split(/\s/)[0]) : V.text(txt.trim()); }
+  render();
+}
+function userPhoto(s) {
+  PRIV.push({ id: ++seq, from: 'me', photo: s.picture ? { emoji: '🖼️', label: 'photo' } : { barcode: true, label: s.label }, time: now() });
+  flowMsg = null;
+  const aw = S.awaiting;
+  S.awaiting = null;
+  if (aw && aw.photo) aw.photo(s); else V.photo(s);
+  render();
+}
+
+// ───────────────────────── shared flows ─────────────────────────
+function itemGrid(items, fn, per = 2) {
+  const rows = [];
+  items.forEach((i, k) => { if (k % per === 0) rows.push([]); rows[rows.length - 1].push(btn(`${urgency(i).icon} ${i.name}`, () => fn(i))); });
+  return rows;
+}
+
+function scanFlow(cb) {
+  step({ text: V.miniApp ? '📷 Tap <b>📷 Scan</b> on the keyboard to open the camera.\nOr send a photo of the barcode, or type the digits under the bars.'
+                         : '📷 Send me a photo of the barcode.\nIf it won’t read, type the digits under the bars.', buttons: [[btn('Cancel', cancel)]] });
+  awaitCode(cb);
+}
+function awaitCode(cb) {
+  S.awaiting = {
+    photo: s => handleCode(s.code, cb),
+    text: t => { const d = t.replace(/\D/g, ''); if (d.length < 8) { step({ text: 'That doesn’t look like a barcode: 8 or 13 digits, please.' }); awaitCode(cb); } else resolveCode(d, cb); },
+  };
+}
+function handleCode(code, cb) {
+  if (!code) { step({ text: '😕 I couldn’t find a barcode in that photo. Try again closer and without glare, or type the digits under the bars.' }); awaitCode(cb); return; }
+  resolveCode(code, cb);
+}
+function resolveCode(code, cb) {
+  const p = S.products.find(p => p.barcode === code && !p.retired);
+  if (p) return cb(p);
+  const off = OFF[code];
+  if (off) {
+    step({ text: `🔎 I don’t know barcode <code>${code}</code> yet. Open Food Facts calls it:\n<b>${off.name}</b>`,
+      photo: { emoji: off.emoji, label: 'photo from Open Food Facts' },
+      buttons: [[btn('✔️ Use this name', () => chooseItem({ name: off.name, photo: off.emoji, barcode: code, off: true }, cb))],
+                [btn('✏️ Type another name', () => askName(code, off.emoji, cb))]] });
+  } else askName(code, null, cb, true);
+}
+function askName(code, photo, cb, notFound) {
+  step({ text: `${notFound ? `🔎 I don’t know barcode <code>${code}</code> and Open Food Facts doesn’t either.\n` : ''}What’s this Product called? Include brand and pack, e.g. “K-Classic kitchen paper, 4 rolls”.` });
+  S.awaiting = { text: name => photo ? chooseItem({ name: esc(name), photo, barcode: code }, cb) : askPhoto({ name: esc(name), barcode: code }, cb) };
+}
+function askPhoto(draft, cb) {
+  step({ text: `📸 Send a photo of <b>${draft.name}</b> so everyone recognises it on the shelf.`, buttons: [[btn('Skip', () => chooseItem(draft, cb))]] });
+  S.awaiting = { photo: () => { draft.photo = '📦'; chooseItem(draft, cb); } };
+}
+function chooseItem(draft, cb) {
+  step({ text: `Which Common Item does <b>${draft.name}</b> cover?`,
+    buttons: [...itemGrid(S.items, it => attachOrCreate(draft, it, cb)),
+              [btn('➕ New Common Item', () => addItemFlow(it => attachOrCreate(draft, it, cb)))]] });
+}
+function attachOrCreate(draft, it, cb) {
+  const credit = draft.off ? '\n<i>Product data from Open Food Facts (ODbL).</i>' : '';
+  const loose = productsOf(it).filter(p => !p.barcode);
+  const create = () => {
+    const p = { id: 'p' + (S.products.length + 1), name: draft.name, item: it.id, barcode: draft.barcode, photo: draft.photo };
+    S.products.push(p);
+    S.flash = `${S.flash ? S.flash + '\n' : ''}💾 Saved <b>${p.name}</b> as a Product of <b>${it.name}</b>.${credit}`;
+    cb(p);
+  };
+  if (!loose.length) return create();
+  step({ text: `<b>${it.name}</b> already has a Product with no barcode:\n<b>${loose[0].name}</b>\nIs this the same good?`,
+    photo: pphoto(loose[0]),
+    buttons: [[btn('📎 Yes — add this barcode to it', () => {
+      const p = loose[0]; p.barcode = draft.barcode; if (!p.photo) p.photo = draft.photo;
+      S.flash = `💾 Barcode added to <b>${p.name}</b>.${credit}`; cb(p);
+    })], [btn('🆕 No — it’s a different Product', create)]] });
+}
+
+function addItemFlow(done, presetName) {
+  const ask = name => {
+    const dup = S.items.find(i => i.name.toLowerCase() === name.toLowerCase());
+    if (dup) return step({ text: `There’s already <b>${dup.name}</b>.` });
+    step({ text: `Roughly how long does one Purchase of <b>${name}</b> last for the ${ROOMS.length} of you?\nA rough guess is fine; I’ll learn from real Purchases.`,
+      buttons: [PRESETS.slice(0, 2).map(([l, d]) => btn(l, () => create(name, d))),
+                PRESETS.slice(2, 4).map(([l, d]) => btn(l, () => create(name, d))),
+                [btn('Skip', () => create(name, null))]] });
+  };
+  const create = (name, expected) => {
+    const it = { id: 'n' + (++S.iseq), name, counts: {}, start: null, excluded: [], runOut: null, last: null, expected, agreed: null };
+    S.items.push(it);
+    if (done) { S.flash = `➕ Added <b>${name}</b>.`; return done(it); }
+    step({ text: `➕ Added <b>${name}</b>. Nobody has bought it yet, so there’s no Turn: anyone can buy it first.`,
+      buttons: [[btn('⚠️ It has already run out', () => runOutFlow(it)), btn('✅ I just bought it', () => recordFlow(it))]] });
+  };
+  if (presetName) return ask(esc(presetName.charAt(0).toUpperCase() + presetName.slice(1)));
+  step({ text: '➕ What’s the new Common Item? Describe the need, not the brand, e.g. “kitchen paper”.' });
+  S.awaiting = { text: t => ask(esc(t.charAt(0).toUpperCase() + t.slice(1))) };
+}
+
+function runOutFlow(it, after) {
+  if (it.runOut) {
+    const txt = `🔴 <b>${it.name}</b> is already reported as Run Out (${room(it.runOut.by).who}, ${ago(S.day - it.runOut.day)}).`;
+    return step({ text: txt, buttons: canRetract(it) ? [[btn('↩️ Retract the Run Out', () => retractFlow(it, after))]] : null });
+  }
+  doRunOut(it, ME);
+  if (after) return after('⚠️ Reported. I told the group.');
+  const o = order(it), ag = it.agreed && prod(it.agreed), mine = !o || o[0] === ME;
+  step({ text: `⚠️ Reported: <b>${it.name}</b> ran out. I told the group.\n${o ? `Turn: ${o[0] === ME ? '<b>you</b>' : tag(o[0])}` : 'Nobody has bought it yet, so anyone can.'}${ag ? `\n⭐ ${ag.name}` : ''}`,
+    photo: mine && ag ? pphoto(ag) : null,
+    buttons: [[btn('↩️ Retract', () => retractFlow(it)), ...(mine ? [btn('✅ I bought it', () => recordFlow(it))] : [])]] });
+}
+function retractFlow(it, after) {
+  if (!canRetract(it)) return step({ text: 'Only whoever reported it or an Admin can retract a Run Out.' });
+  doRetract(it);
+  after ? after('↩️ Run Out retracted. I told the group.') : step({ text: `↩️ Retracted the Run Out of <b>${it.name}</b>. I told the group.` });
+}
+
+function pickProduct(it, done) {
+  const ps = productsOf(it), ag = it.agreed && prod(it.agreed);
+  if (!ps.length) return done(it, null);
+  const rows = [];
+  if (ag) rows.push([btn(`⭐ ${ag.name}`, () => done(it, ag.id))]);
+  ps.filter(p => p.id !== it.agreed).forEach(p => rows.push([btn(p.name, () => done(it, p.id))]));
+  rows.push([btn('📷 Something else — scan it', () => scanFlow(p => done(item(p.item), p.id))), btn(`Just “${it.name}”`, () => done(it, null))]);
+  step({ text: `✅ Which <b>${it.name}</b> did you buy?`, photo: ag ? pphoto(ag) : null, buttons: rows });
+}
+function recordFlow(it, pid) {
+  if (pid !== undefined) return commit(it, pid);
+  pickProduct(it, commit);
+}
+function commit(it, pid) { const r = doPurchase(it, ME, pid); step(purchaseReply(it, r)); }
+function purchaseText(it, r) {
+  const o = order(it), p = r.rec.product && prod(r.rec.product);
+  let s = `✅ Recorded: you bought <b>${it.name}</b>${p ? ` — ${p.name}` : ''}.`;
+  if (r.cleared) s += '\nThe Run Out is cleared.';
+  if (r.first) s += '\nYou’re the first to buy it, so Room 2 starts its Rotation.';
+  if (r.out) s += `\nThat was out of turn: ${tag(r.had)} still holds the Turn, and Room 2 will be skipped once.`;
+  else s += `\nNext Turn: ${o[0] === ME ? 'you again' : tag(o[0])}.`;
+  return s + (r.cleared ? '\nI told the group it’s bought.' : '');
+}
+const purchaseReply = (it, r) => ({ text: purchaseText(it, r), buttons: [[btn('↩️ Undo', () => undoFlow(it))]] });
+
+function undoFlow(it, after) {
+  const r = lastMine(it);
+  if (!r) return step({ text: `You have no Purchase of <b>${it.name}</b> to undo.`, buttons: after ? [[btn('← Back', () => after())]] : null });
+  const p = r.product && prod(r.product);
+  step({ text: `↩️ Undo your Purchase of <b>${it.name}</b>${p ? ` (${p.name})` : ''} from ${ago(S.day - r.day)}?`,
+    buttons: [[btn('Yes, undo it', () => {
+      doUndo(it, r);
+      const o = order(it), told = r.prevRunOut ? ' It’s Run Out again; I told the group.' : '';
+      after ? after('↩️ Purchase undone.' + told) : step({ text: `↩️ Undone. ${o ? `Turn: ${o[0] === ME ? 'you' : tag(o[0])}.` : 'No Turn yet.'}${told}` });
+    }), btn('No, keep it', () => after ? after() : step({ text: 'Kept.' }))]] });
+}
+function excludeFlow(it, after) {
+  const back = after ? [[btn('← Back', () => after())]] : null;
+  if (it.excluded.includes(ME)) return step({ text: `Room 2 is already excluded from <b>${it.name}</b>.`, buttons: back });
+  if (S.pending.some(p => p.item === it.id)) return step({ text: `You already asked to be excluded from <b>${it.name}</b>; the Admins haven’t answered yet.`, buttons: back });
+  step({ text: `🙋 Ask the Admins to exclude Room 2 from <b>${it.name}</b>?\nRoom 2 would stop taking Turns for it and its Run Outs.`,
+    buttons: [[btn('🙋 Ask the Admins', () => {
+      S.pending.push({ item: it.id, room: ME });
+      const m = `🙋 Asked the Admins (Lena) to exclude Room 2 from <b>${it.name}</b>. I’ll tell you here when they decide.`;
+      after ? after(m) : step({ text: m });
+    }), btn('Cancel', () => after ? after() : cancel())]] });
+}
+function agreedFlow(it, after) {
+  const ps = productsOf(it);
+  const set = pid => { doSetAgreed(it, pid); after ? after('⭐ Agreed Product updated.') : step({ text: '⭐ Updated.', photo: pphoto(pid && prod(pid)) }); };
+  const rows = ps.map(p => [btn(`${p.id === it.agreed ? '⭐ ' : ''}${p.name}`, () => set(p.id))]);
+  rows.push([btn('📷 Scan another Product', () => scanFlow(p => p.item === it.id ? set(p.id) : step({ text: `<b>${p.name}</b> is a Product of ${item(p.item).name}, not ${it.name}.` })))]);
+  if (it.agreed) rows.push([btn('Clear — no Agreed Product', () => set(null))]);
+  if (after) rows.push([btn('← Back', () => after())]);
+  step({ text: `⭐ Which Product should everyone buy for <b>${it.name}</b>?`, buttons: rows });
+}
+function productActions(p) {
+  const it = item(p.item), u = urgency(it);
+  step({ text: `📦 <b>${p.name}</b>${it.agreed === p.id ? ' ⭐' : ''}\nCommon Item: <b>${it.name}</b> · ${u.icon} ${u.label} · ${posTxt(it)}`, photo: pphoto(p),
+    buttons: [[btn('✅ I bought it', () => recordFlow(it, p.id)), btn('⚠️ It ran out', () => runOutFlow(it))]] });
+}
+function itemCard(it) {
+  const u = urgency(it), o = order(it), ag = it.agreed && prod(it.agreed);
+  let s = `${u.icon} <b>${it.name}</b> — ${u.label}`;
+  if (it.runOut) s += ` (${room(it.runOut.by).who}, ${ago(S.day - it.runOut.day)})`;
+  s += `\n${posTxt(it).replace(/^./, c => c.toUpperCase())}`;
+  s += ag ? `\n⭐ Agreed Product: ${ag.name}` : '\n⭐ No Agreed Product yet';
+  if (o) {
+    s += '\n\n<b>Rotation</b> · Purchases';
+    ROOMS.forEach(r => {
+      const ex = it.excluded.includes(r.id);
+      s += `\n${o[0] === r.id ? '👉' : '▫️'} ${tag(r.id)}: ${ex ? '<i>excluded</i>' : ('●'.repeat(it.counts[r.id] || 0) || '—')}`;
+    });
+  }
+  s += `\n\n${it.last == null ? 'Never bought' : `Last bought ${ago(it.last)}`} · ${it.expected ? `lasts ~${it.expected} days` : 'no estimate yet'}`;
+  return { text: s, photo: ag ? pphoto(ag) : null };
+}
+
+// ───────────────────────── variant A: commands ─────────────────────────
+const A = {
+  name: 'Commands', mode: 'edit',
+  desc: 'Verb first. Each interaction starts from a slash command in the ☰ Menu; its inline keyboard walks you through by editing one message. Send a barcode photo at any time.',
+  menu: [['/buy', 'what should I buy?'], ['/ranout', 'something ran out'], ['/bought', 'I bought something'], ['/add', 'add a Common Item'], ['/items', 'Agreed Products, undo, exclusions']],
+  start() { say({ text: '👋 Hi Ferran, you’re in <b>Room 2</b>.\n\n/buy — what should I buy?\n/ranout — something ran out\n/bought — I bought something\n/add — add a Common Item\n/items — Agreed Products, undo, exclusions\n\nTip: send me a barcode photo at any time.' }); },
+  command(c) { ({ buy: A_buy, ranout: A_ranout, bought: A_bought, add: () => addItemFlow(), items: A_items, start: A.start }[c] || (() => say({ text: 'Unknown command. Tap ☰ Menu.' })))(); },
+  text() { say({ text: 'Tap ☰ Menu and pick a command, e.g. /buy.' }); },
+  photo(s) { handleCode(s.code, productActions); },
+};
+function A_buy() {
+  let out = '🛒 <b>What should I buy?</b>';
+  for (const [lvl, h] of [[3, '🔴 Run Out'], [2, '🟠 Due soon'], [1, '⚪ Not yet']]) {
+    const its = sorted().filter(i => urgency(i).lvl === lvl);
+    if (!its.length) continue;
+    out += `\n\n<b>${h}</b>`;
+    its.forEach(i => {
+      const ag = i.agreed && prod(i.agreed);
+      out += `\n• ${i.name} — ${posTxt(i)}${urgency(i).noEst && !i.runOut ? ' · <i>no estimate yet</i>' : ''}`;
+      if (ag && lvl > 1) out += `\n    ⭐ ${ag.name}`;
+    });
+  }
+  say({ text: out, buttons: [[btn('✅ I bought something', fresh(A_bought)), btn('⚠️ Something ran out', fresh(A_ranout))]] });
+  const mine = sorted().filter(i => urgency(i).lvl > 1 && myPos(i) === 'turn' && i.agreed);
+  if (mine.length) say({ album: mine.map(i => pphoto(prod(i.agreed))), text: '⭐ Look for these on the shelf' });
+}
+function A_ranout() {
+  step({ text: '⚠️ <b>What ran out?</b>',
+    buttons: [...itemGrid(S.items.filter(i => !i.runOut), i => runOutFlow(i)),
+              [btn('📷 Scan barcode', () => scanFlow(p => runOutFlow(item(p.item)))), btn('Cancel', cancel)]] });
+}
+function A_bought() {
+  step({ text: '✅ <b>What did you buy?</b>\nMost pressing first.',
+    buttons: [...sorted().map(i => [btn(`${urgency(i).icon} ${i.name} · ${shortPos(i)}`, () => recordFlow(i))]),
+              [btn('📷 Scan barcode', () => scanFlow(p => recordFlow(item(p.item), p.id))), btn('Cancel', cancel)]] });
+}
+function A_items() {
+  step({ text: '🗂 <b>Which Common Item?</b>', buttons: itemGrid(S.items, A_itemMenu) });
+}
+function A_itemMenu(it, banner) {
+  const back = b => A_itemMenu(it, b);
+  const c = itemCard(it);
+  step({ text: (banner ? banner + '\n\n' : '') + c.text, photo: c.photo,
+    buttons: [[btn('⭐ Agreed Product', () => agreedFlow(it, back))],
+              [btn('↩️ Undo my last Purchase', () => undoFlow(it, back))],
+              [btn('🙋 Ask to be excluded', () => excludeFlow(it, back))],
+              [btn('← All items', A_items)]] });
+}
+
+// ───────────────────────── variant B: home & item cards ─────────────────────────
+const B = {
+  name: 'Home & item cards', mode: 'edit',
+  desc: 'Item first. One Home message is the “what should I buy” list; tap a Common Item to open its card and act on it (bought, ran out, Agreed Product, undo, exclusion). Everything edits that one message.',
+  menu: [['/start', 'open Home']],
+  start() { B_home(); },
+  command() { flowMsg = null; B_home(); },
+  text() { flowMsg = null; B_home(); },
+  photo(s) { handleCode(s.code, p => B_card(item(p.item), p)); },
+};
+function B_home() {
+  const its = sorted(), need = its.filter(i => urgency(i).lvl > 1), mine = need.filter(i => ['turn', 'anyone'].includes(myPos(i)));
+  const rows = its.map(i => [btn(`${urgency(i).icon} ${i.name} · ${shortPos(i)}`, () => B_card(i))]);
+  rows.push([btn('➕ Add item', () => addItemFlow(it => B_card(it))), btn('📷 Scan', () => scanFlow(p => B_card(item(p.item), p)))]);
+  step({ text: `🏠 <b>Home</b> · Room 2 (you)\n\n${need.length} need buying · <b>${mine.length} for you</b>\n🔴 Run Out  🟠 Due soon  ⚪ Not yet\n\nTap a Common Item.`, buttons: rows });
+}
+function B_card(it, scanned, banner) {
+  const back = b => B_card(it, null, b);
+  const c = itemCard(it);
+  let text = c.text, photo = c.photo;
+  if (scanned) { text = `📦 Scanned: <b>${scanned.name}</b>\n\n` + text; photo = pphoto(scanned) || photo; }
+  const bought = () => { const r = doPurchase(it, ME, scanned ? scanned.id : null); B_card(it, null, purchaseText(it, r)); };
+  const rows = [[
+    btn(scanned ? '✅ I bought this' : '✅ I bought it', scanned ? bought : () => pickProduct(it, (it2, pid) => { const r = doPurchase(it2, ME, pid); B_card(it2, null, purchaseText(it2, r)); })),
+    it.runOut ? (canRetract(it) ? btn('↩️ Retract Run Out', () => retractFlow(it, back)) : null) : btn('⚠️ It ran out', () => runOutFlow(it, back)),
+  ].filter(Boolean)];
+  rows.push([btn('⭐ Agreed Product', () => agreedFlow(it, back)), ...(lastMine(it) ? [btn('↩️ Undo my Purchase', () => undoFlow(it, back))] : [])]);
+  if (!it.excluded.includes(ME) && it.start != null) rows.push([btn('🙋 Ask to be excluded', () => excludeFlow(it, back))]);
+  rows.push([btn('← Home', B_home)]);
+  step({ text: (banner ? banner + '\n\n' : '') + text, photo, buttons: rows });
+}
+
+// ───────────────────────── variant C: shop mode ─────────────────────────
+const C = {
+  name: 'Shop mode', mode: 'new', miniApp: true,
+  desc: 'Chat-native. A persistent keyboard whose 📷 Scan opens a camera Mini App (it reads the barcode live and hands it to the bot; a photo or typed digits still work); a compact shopping list you tick off in the shop (each tick records a Purchase of the ⭐ Agreed Product; “Something else…” reveals every other Common Item; photos on demand); and at any time you can send a barcode photo or type “bought kitchen paper”. Replies are new messages, not edits.',
+  menu: [['/list', 'shopping list'], ['/start', 'help']],
+  replyKb: [['🛒 Shopping list', '⚠️ Something ran out'], ['📷 Scan', '➕ Add item']],
+  start() { say({ text: '👋 Hi Ferran, you’re in <b>Room 2</b>.\nUse the keyboard below, send me a barcode photo, or just type what happened, e.g. “bought kitchen paper” or “dish soap ran out”.' }); },
+  command(c) { c === 'start' ? C.start() : C_list(); },
+  text(txt) {
+    const keys = { '🛒 Shopping list': C_list, '⚠️ Something ran out': C_ranout, '➕ Add item': () => addItemFlow() };
+    if (keys[txt]) return keys[txt]();
+    const low = txt.toLowerCase();
+    const it = S.items.find(i => { const n = i.name.toLowerCase(); return low.includes(n) || low.includes(n.replace(/s$/, '')); });
+    if (!it) return say({ text: `I don’t know “${esc(txt)}”. Is it a new Common Item?`, buttons: [[btn(`➕ Add “${esc(txt)}”`, () => addItemFlow(null, txt))]] });
+    if (/\b(bought|got|buy|picked up)\b/.test(low)) return recordFlow(it);
+    if (/ran out|run out|out of|finished|empty|no more/.test(low)) return runOutFlow(it);
+    C_item(it);
+  },
+  photo(s) { handleCode(s.code, productActions); },
+};
+function C_item(it) {
+  const c = itemCard(it);
+  step({ text: c.text, photo: c.photo,
+    buttons: [[btn('✅ I bought it', () => recordFlow(it)), btn('⚠️ It ran out', () => runOutFlow(it))],
+              [btn('⋯ More', () => step({ text: `More for <b>${it.name}</b>:`, buttons: [[btn('⭐ Agreed Product', () => agreedFlow(it)), btn('↩️ Undo my last Purchase', () => undoFlow(it))], [btn('🙋 Ask to be excluded', () => excludeFlow(it))]] }))]] });
+}
+function C_ranout() {
+  step({ text: '⚠️ What ran out? Tap it, or send me its barcode photo.', buttons: itemGrid(S.items.filter(i => !i.runOut), i => runOutFlow(i)) });
+  S.awaiting = { photo: s => handleCode(s.code, p => runOutFlow(item(p.item))) };
+}
+function C_list() {
+  const its = sorted().filter(i => myPos(i) !== 'excluded');
+  const yours = its.filter(i => myPos(i) === 'turn' && urgency(i).lvl > 1).map(i => i.id);
+  const anyone = its.filter(i => myPos(i) === 'anyone' && urgency(i).lvl > 1).map(i => i.id);
+  S.list = {
+    yours, anyone,
+    rest: its.map(i => i.id).filter(id => !yours.includes(id) && !anyone.includes(id)),
+    soon: its.filter(i => myPos(i) === 'turn' && urgency(i).lvl === 1).map(i => i.id),
+    more: false, ticks: {},
+  };
+  flowMsg = null;
+  C_renderList();
+}
+function C_renderList(done) {
+  const L = S.list, shown = [...L.yours, ...L.anyone, ...(L.more ? L.rest : [])];
+  const line = (id, withTurn) => {
+    const i = item(id), ag = i.agreed && prod(i.agreed), t = L.ticks[id];
+    if (t) return `\n☑ <s>${i.name}</s>`;
+    const extra = [ag && (ag.short || ag.name), withTurn && myPos(i) !== 'anyone' && shortPos(i), i.runOut && 'ran out'].filter(Boolean);
+    return `\n☐ ${i.name}${extra.length ? ` · <span class="muted">${extra.join(' · ')}</span>` : ''}`;
+  };
+  let s = '🛒 <b>Shopping list</b> · Room 2';
+  if (L.yours.length) s += '\n\n<b>Your Turn</b>' + L.yours.map(id => line(id)).join('');
+  if (L.anyone.length) s += '\n\n<b>Anyone</b>' + L.anyone.map(id => line(id)).join('');
+  if (!L.yours.length && !L.anyone.length) s += '\n\nNothing you need to buy right now 🎉';
+  if (L.more) s += '\n\n<b>Something else</b>' + L.rest.map(id => line(id, true)).join('');
+  if (L.soon.length && !L.more) s += `\n\n<i>Your Turn later: ${L.soon.map(id => item(id).name).join(', ')}</i>`;
+  const n = Object.keys(L.ticks).length;
+  if (done) return step({ text: s + `\n\n✔️ Done — ${n} Purchase${n === 1 ? '' : 's'} recorded.` }, { edit: true });
+  const rows = [];
+  shown.forEach((id, k) => { if (k % 2 === 0) rows.push([]); rows[rows.length - 1].push(btn(`${L.ticks[id] ? '☑' : '☐'} ${item(id).name}`, () => C_tick(id), true)); });
+  rows.push([btn(L.more ? '➖ Hide the rest' : '➕ Something else…', () => { L.more = !L.more; C_renderList(); }, true),
+             btn('🖼 Photos', () => C_photos(shown), true)]);
+  rows.push([btn('✔️ Done shopping', () => C_renderList(true), true)]);
+  step({ text: s, buttons: rows }, { edit: true });
+}
+function C_photos(ids) {
+  const ps = ids.filter(id => !S.list.ticks[id]).map(id => item(id).agreed && prod(item(id).agreed)).filter(p => p && p.photo);
+  say(ps.length ? { album: ps.map(pphoto), text: '⭐ What to look for on the shelf' } : { text: 'No Agreed Product photos for these yet.' });
+}
+function C_tick(id) {
+  const it = item(id), L = S.list;
+  if (L.ticks[id]) { doUndo(it, L.ticks[id]); delete L.ticks[id]; }
+  else L.ticks[id] = doPurchase(it, ME, it.agreed || null).rec;
+  C_renderList();
+}
+
+// ───────────────────────── page wiring ─────────────────────────
+const VARIANTS = { A, B, C };
+const KEYS = Object.keys(VARIANTS);
+const TRY = [
+  'See what you should buy (A: /buy · B: Home · C: 🛒 Shopping list).',
+  'Report a Run Out by picking from the list, then again by scanning (📎 → a known barcode).',
+  'Record a Purchase of Kitchen paper: the ⭐ Agreed Product comes first.',
+  'Buy Dish soap out of turn: Aiko still holds the Turn.',
+  'Buy Bin bags (no Turn yet): Room 2 becomes the Rotation Start.',
+  'Undo your Toilet paper Purchase from 3 days ago.',
+  'Ask to be excluded from Coffee, then approve it as Lena in the state panel.',
+  'Add a Common Item with a rough guess.',
+  'Scan unknown barcodes: found in Open Food Facts (attach to the loose bin bags) / not found / blurry.',
+  'C: tap 📷 Scan on the keyboard: a camera Mini App opens, reads the barcode and hands it to the bot. Try it on its own and in the middle of a flow (e.g. ⚠️ Something ran out).',
+  'C: in the shopping list, open “Something else…” and tick Toilet paper (not on your list); try 🖼 Photos.',
+  'Watch the group: only Run Outs and their resolution appear. Personal alerts go to private chats (yours here; others’ in the state panel).',
+  'State panel: “Lena buys Coffee” (you get “your Turn”), then “Aiko reports Coffee ran out” (you get a private alert with ✅ I bought it).',
+];
+
+function pick(k) {
+  VKEY = KEYS.includes(k) ? k : 'C'; V = VARIANTS[VKEY];
+  const u = new URL(location); u.searchParams.set('variant', VKEY); history.replaceState(null, '', u);
+  S = seed(); PRIV = []; GROUP = []; flowMsg = null; seq = 0; clock = 9 * 60 + 40;
+  group('📌 rooms76 posts here only when something runs out, and when it’s bought. Everything else happens in your private chat with the bot.');
+  V.start();
+  render();
+}
+
+function photoHtml(p) {
+  if (!p) return '';
+  if (p.barcode) return `<div class="ph"><div class="bars"></div><span>${p.label}</span></div>`;
+  return `<div class="ph"><div class="em">${p.emoji}</div><span>${p.label}</span></div>`;
+}
+function msgHtml(m) {
+  let h = `<div class="row ${m.from}"><div class="bubble">`;
+  if (m.photo) h += photoHtml(m.photo);
+  if (m.album) h += `<div class="album">${m.album.map(photoHtml).join('')}</div>`;
+  if (m.text) h += `<div>${m.text.replace(/\n/g, '<br>')}</div>`;
+  if (m.chosen) h += `<div class="chosen">→ ${m.chosen}</div>`;
+  h += `<div class="meta">${m.edited ? 'edited · ' : ''}${m.time}</div></div></div>`;
+  if (m.buttons && m.buttons.length) {
+    h += `<div class="kb">${m.buttons.map((r, ri) => `<div class="kbrow">${r.map((b, bi) => `<button data-m="${m.id}" data-r="${ri}" data-b="${bi}">${b.t}</button>`).join('')}</div>`).join('')}</div>`;
+  }
+  return h;
+}
+
+function render() {
+  document.getElementById('banner').innerHTML =
+    `<b>PROTOTYPE</b> · throwaway · issue #7 “What should the four core interactions look like in Telegram?” — <b class="v">${VKEY}: ${V.name}</b> — ${V.desc}` +
+    `<details><summary>Things to try (same data in every variant; switching resets)</summary><ol>${TRY.map(t => `<li>${t}</li>`).join('')}</ol></details>`;
+  document.getElementById('vlabel').textContent = `${VKEY} (${V.name})`;
+  const pv = document.getElementById('priv'); pv.innerHTML = PRIV.map(msgHtml).join(''); pv.scrollTop = pv.scrollHeight;
+  const gp = document.getElementById('group'); gp.innerHTML = GROUP.map(msgHtml).join(''); gp.scrollTop = gp.scrollHeight;
+  document.getElementById('replykb').innerHTML = V.replyKb
+    ? `<div class="replykb">${V.replyKb.map(r => `<div class="r">${r.map(t => `<button data-reply="${t}">${t}</button>`).join('')}</div>`).join('')}</div>` : '';
+  renderState();
+}
+
+function renderState() {
+  const itemsRows = sorted().map(i => {
+    const u = urgency(i), o = order(i), ag = i.agreed && prod(i.agreed);
+    const counts = ROOMS.map(r => i.excluded.includes(r.id) ? `R${r.id}:✕` : `R${r.id}:${i.counts[r.id] || 0}`).join(' ');
+    return `<tr><td><b>${i.name}</b></td><td>${u.icon} ${u.label}${u.score > 0 && u.lvl < 3 ? ` <span class="muted">${Math.round(u.score * 100)}%</span>` : ''}${u.noEst ? ' <span class="muted">no est.</span>' : ''}</td>` +
+      `<td>${o ? `R${o[0]}` : '<span class="muted">none</span>'}</td><td>${o ? counts : '—'}${i.start ? ` <span class="muted">start R${i.start}</span>` : ''}</td>` +
+      `<td>${ag ? ag.name : '—'}</td><td>${i.last == null ? '—' : `${i.last}d`} / ${i.expected ? `${i.expected}d` : '—'}</td></tr>`;
+  }).join('');
+  const prodRows = S.products.map(p => `<tr><td>${p.photo || '·'} ${p.name}</td><td>${item(p.item).name}</td><td>${p.barcode ? `<code>${p.barcode}</code>` : '<span class="muted">no barcode</span>'}</td></tr>`).join('');
+  const pend = S.pending.map((p, k) => `<div>Room ${p.room} → excluded from <b>${item(p.item).name}</b> <button data-approve="${k}">Approve as Lena</button><button data-decline="${k}">Decline</button></div>`).join('') || '<span class="muted">none</span>';
+  const pings = S.pings.slice().reverse().slice(0, 6).map(p => `<div>→ <b>${room(p.to).who}</b> (Room ${p.to}): ${p.text.replace(/\n/g, ' ')}</div>`).join('') || '<span class="muted">none</span>';
+  const hist = S.purchases.slice().reverse().slice(0, 8).map(p => `<div class="muted">${p.undone ? '<s>' : ''}R${p.room} bought ${item(p.item).name}${p.product ? ` (${prod(p.product).name})` : ''} · day ${p.day}${p.undone ? '</s> undone' : ''}</div>`).join('');
+  document.getElementById('state').innerHTML = `
+    <h3>Simulate others</h3>
+    <div class="sim">
+      <button data-sim="ds-out">Lena reports Dish soap ran out</button>
+      <button data-sim="kp-aiko">Aiko buys Kitchen paper (out of turn)</button>
+      <button data-sim="dw-tomas">Tomás buys Dishwasher tabs</button>
+      <button data-sim="cf-lena">Lena buys Coffee (your Turn next)</button>
+      <button data-sim="cf-out">Aiko reports Coffee ran out</button>
+      <button data-sim="day">A day passes</button>
+      <button data-sim="reset">Reset</button>
+    </div>
+    <h3>Private messages to others</h3>${pings}
+    <h3>Pending exclusion requests</h3>${pend}
+    <h3>Common Items · day ${S.day}</h3>
+    <table><tr><th>Item</th><th>Urgency</th><th>Turn</th><th>Rotation counts</th><th>⭐ Agreed</th><th>Last / expected</th></tr>${itemsRows}</table>
+    <p class="muted">Room Order R1 → R2 → R3 → R4. You are R2. Lena (R1) is the Admin.</p>
+    <h3>Products</h3><table>${prodRows}</table>
+    <h3>Latest Purchases</h3>${hist}`;
+}
+
+function simulate(k) {
+  if (k === 'reset') return pick(VKEY);
+  if (k === 'ds-out') { const i = item('ds'); if (!i.runOut) doRunOut(i, 1); }
+  if (k === 'kp-aiko') doPurchase(item('kp'), 4, 'p1');
+  if (k === 'dw-tomas') doPurchase(item('dw'), 3, 'p6');
+  if (k === 'cf-lena') doPurchase(item('cf'), 1, 'p7');
+  if (k === 'cf-out') { const i = item('cf'); if (!i.runOut) doRunOut(i, 4); }
+  if (k === 'day') { S.day++; S.items.forEach(i => { if (i.last != null) i.last++; }); }
+  render();
+}
+function decide(k, ok) {
+  const p = S.pending.splice(k, 1)[0], it = item(p.item);
+  if (ok) {
+    it.excluded.push(p.room);
+    say({ text: `✅ Lena approved: Room 2 no longer takes part in <b>${it.name}</b>.` });
+  } else say({ text: `Lena declined: Room 2 still takes part in <b>${it.name}</b>.` });
+  flowMsg = null;
+  render();
+}
+
+document.getElementById('priv').addEventListener('click', e => {
+  const el = e.target.closest('button[data-m]'); if (!el) return;
+  const m = PRIV.find(x => x.id === +el.dataset.m), b = m && m.buttons && m.buttons[+el.dataset.r][+el.dataset.b];
+  if (!b) return;
+  if (V.mode === 'new' && !b.keep) { m.buttons = null; m.chosen = b.t; }
+  flowMsg = m; S.awaiting = null;
+  b.go();
+  render();
+});
+document.getElementById('replykb').addEventListener('click', e => {
+  const el = e.target.closest('button[data-reply]'); if (!el) return;
+  if (V.miniApp && el.dataset.reply === '📷 Scan') openMiniApp(); else userText(el.dataset.reply);
+});
+// Simulated camera Mini App, opened from a reply-keyboard web_app button: it decodes on the phone
+// and returns the code with Telegram.WebApp.sendData, which reaches the bot as an ordinary update.
+const ma = document.getElementById('miniapp');
+function openMiniApp() {
+  ma.hidden = false;
+  ma.innerHTML = `<div class="ma-top">rooms76 · Scan<button data-ma="close">✕</button></div>
+    <div class="viewfinder"><div class="frame" id="frame"></div><div class="hint" id="hint">Point the camera at a barcode</div></div>
+    <div class="ma-list"><div class="h">Simulate pointing the camera at…</div>${SAMPLES.map((s, k) => s.code ? `<button data-ma="${k}">${s.label.replace('Barcode · ', '')}</button>` : '').join('')}</div>
+    <div class="ma-foot">Reads live, no shutter button. Can’t get it to read? Close and send a photo, or type the digits.</div>`;
+}
+ma.addEventListener('click', e => {
+  const el = e.target.closest('button[data-ma]'); if (!el) return;
+  if (el.dataset.ma === 'close') { ma.hidden = true; return; }
+  const s = SAMPLES[+el.dataset.ma];
+  document.getElementById('frame').classList.add('ok');
+  document.getElementById('hint').textContent = `✓ ${s.code}`;
+  setTimeout(() => { ma.hidden = true; userScan(s); }, 450);
+});
+function userScan(s) {
+  PRIV.push({ id: ++seq, from: 'service', text: `📷 Scanned <code>${s.code}</code> with “Scan”`, time: now() });
+  flowMsg = null;
+  const aw = S.awaiting;
+  S.awaiting = null;
+  if (aw && aw.photo) aw.photo(s); else V.photo(s);
+  render();
+}
+document.getElementById('state').addEventListener('click', e => {
+  const el = e.target.closest('button'); if (!el) return;
+  if (el.dataset.sim) simulate(el.dataset.sim);
+  if (el.dataset.approve) decide(+el.dataset.approve, true);
+  if (el.dataset.decline) decide(+el.dataset.decline, false);
+});
+const input = document.getElementById('input'), pop = document.getElementById('pop');
+const send = () => { const t = input.value; input.value = ''; userText(t); };
+document.getElementById('sendBtn').onclick = send;
+input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+document.getElementById('menuBtn').onclick = () => {
+  pop.innerHTML = `<div class="h">Bot menu</div>` + V.menu.map(([c, d]) => `<button data-cmd="${c}"><b>${c}</b> — ${d}</button>`).join('');
+  pop.hidden = !pop.hidden;
+};
+document.getElementById('clipBtn').onclick = () => {
+  pop.innerHTML = `<div class="h">Send a photo</div>` + SAMPLES.map((s, k) => `<button data-photo="${k}">📷 ${s.label}</button>`).join('');
+  pop.hidden = !pop.hidden;
+};
+pop.addEventListener('click', e => {
+  const el = e.target.closest('button'); if (!el) return;
+  pop.hidden = true;
+  if (el.dataset.cmd) userText(el.dataset.cmd);
+  if (el.dataset.photo) userPhoto(SAMPLES[+el.dataset.photo]);
+});
+const cycle = d => pick(KEYS[(KEYS.indexOf(VKEY) + d + KEYS.length) % KEYS.length]);
+document.getElementById('prev').onclick = () => cycle(-1);
+document.getElementById('next').onclick = () => cycle(1);
+document.addEventListener('keydown', e => {
+  if (e.target.closest('input, textarea, [contenteditable]')) return;
+  if (e.key === 'ArrowLeft') cycle(-1);
+  if (e.key === 'ArrowRight') cycle(1);
+});
+
+pick(new URLSearchParams(location.search).get('variant'));
+</script>
+</body>
+</html>
