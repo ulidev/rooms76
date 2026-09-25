@@ -4,13 +4,18 @@ import type { Db } from "./db/database.ts";
 import { chatStates } from "./db/schema.ts";
 
 /** Every flow that spans several messages. Add a variant per flow. */
-export type ChatState = {
-  flow: "setup-rooms";
-  /** The Room names typed so far, in Room Order. */
-  rooms: string[];
-  /** While reordering: the Rooms tapped so far, in their new order. */
-  reordered: string[] | null;
-};
+export type ChatState =
+  | {
+      flow: "setup-rooms";
+      /** The Room names typed so far, in Room Order. */
+      rooms: string[];
+      /** While reordering: the Rooms tapped so far, in their new order. */
+      reordered: string[] | null;
+    }
+  /** Waiting for a Resident's new name. */
+  | { flow: "rename" }
+  /** Waiting for an Admin to type the move-in date of an Invite for this Room. */
+  | { flow: "invite-date"; roomId: number };
 
 export interface ChatStates {
   get(chatId: number): ChatState | undefined;

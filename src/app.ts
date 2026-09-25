@@ -7,6 +7,7 @@ import type { Clock } from "./clock.ts";
 import { readConfig } from "./config.ts";
 import { openDatabase } from "./db/database.ts";
 import { setUpProfile } from "./profile.ts";
+import { createInvites } from "./invites.ts";
 import { createResidents } from "./residents.ts";
 import { createSetup } from "./setup.ts";
 
@@ -41,6 +42,7 @@ export async function startApp(options: StartOptions): Promise<App> {
     const bot = createBot(config.botToken, {
       residents,
       setup,
+      invites: createInvites(database.db, clock, config.apartmentTimeZone, residents),
       chatStates: createChatStates(database.db),
       scannerUrl: config.scannerUrl,
       log,

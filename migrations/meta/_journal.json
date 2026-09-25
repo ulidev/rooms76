@@ -15,6 +15,13 @@
       "when": 1790352107032,
       "tag": "0001_chat_states",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790352931930,
+      "tag": "0002_invites",
+      "breakpoints": true
     }
   ]
 }

@@ -25,6 +25,8 @@ test("at startup the bot sets its commands, description and short description", 
   expect(call("setMyCommands")).toEqual({
     commands: [
       { command: "start", description: "Open the bot" },
+      { command: "name", description: "Change your name" },
+      { command: "invites", description: "Create and revoke Invites (Admins)" },
       { command: "about", description: "About rooms76 and its data sources" },
     ],
   });

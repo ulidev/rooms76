@@ -42,3 +42,27 @@ export const chatStates = sqliteTable("chat_states", {
   chatId: integer("chat_id").primaryKey(),
   state: text("state", { mode: "json" }).$type<ChatState>().notNull(),
 });
+
+/**
+ * A single-use link that makes whoever opens it a Resident of a Room. Pending until
+ * it's used or revoked; a pending Invite past its expiry counts as expired.
+ */
+export const invites = sqliteTable("invites", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  /** The `start` parameter of the Invite link. */
+  token: text("token").notNull().unique(),
+  roomId: integer("room_id")
+    .notNull()
+    .references(() => rooms.id),
+  /** Calendar date (YYYY-MM-DD) in the Apartment time zone; the Stay starts on it. */
+  moveIn: text("move_in").notNull(),
+  createdBy: integer("created_by")
+    .notNull()
+    .references(() => persons.id),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  state: text("state", { enum: ["pending", "used", "revoked"] })
+    .notNull()
+    .default("pending"),
+  /** The person who opened it, once used. */
+  usedBy: integer("used_by").references(() => persons.id),
+});

@@ -3,6 +3,7 @@
 import { Composer, InlineKeyboard, type Context, type MiddlewareFn } from "grammy";
 import type { ChatState, ChatStates } from "./chat-states.ts";
 import { formatDate } from "./clock.ts";
+import { NEW_INVITE } from "./invites-flow.ts";
 import { roomNameProblem, type Setup } from "./setup.ts";
 import { SHOP_MODE_HINT, shopKeyboard } from "./shop-mode.ts";
 
@@ -31,7 +32,8 @@ export function guidedSetup(setup: Setup, chatStates: ChatStates, scannerUrl: st
 
   /** Step 1: the Admin types Room names, may reorder them, and confirms the Room Order. */
   async function roomsStep(ctx: Context, chatId: number, name: string): Promise<void> {
-    const draft: RoomsDraft = chatStates.get(chatId) ?? emptyDraft();
+    const state = chatStates.get(chatId);
+    const draft: RoomsDraft = state?.flow === "setup-rooms" ? state : emptyDraft();
     const text = ctx.message?.text;
     const action = ctx.callbackQuery?.data;
 
@@ -139,7 +141,7 @@ export function guidedSetup(setup: Setup, chatStates: ChatStates, scannerUrl: st
         reply_markup: new InlineKeyboard()
           .text("👥 Link the Apartment Group", "setup-optional:link")
           .row()
-          .text("✉️ Create an Invite", "setup-optional:invite")
+          .text("✉️ Create an Invite", NEW_INVITE)
           .row()
           .text("⏭ Skip for now", "setup-optional:skip"),
       },
@@ -161,7 +163,6 @@ export function optionalSetupSteps(): Composer<Context> {
   composer.callbackQuery("setup-optional:link", (ctx) =>
     ctx.answerCallbackQuery("Linking the Apartment Group is coming soon."),
   );
-  composer.callbackQuery("setup-optional:invite", (ctx) => ctx.answerCallbackQuery("Invites are coming soon."));
   composer.callbackQuery("setup-optional:skip", async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.editMessageText("Skipped. You can link the Apartment Group and create Invites later.");

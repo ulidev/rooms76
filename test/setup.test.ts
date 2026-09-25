@@ -167,18 +167,28 @@ test("after setup, linking the Apartment Group and creating Invites are offered 
   });
 });
 
-test("the optional steps that don't exist yet say so", async () => {
+test("linking the Apartment Group, which doesn't exist yet, says so", async () => {
   bot = await startTestBot();
   await confirmRooms("Room 1");
   await bot.tap(operator, "Room 1");
 
   await bot.tap(operator, "👥 Link the Apartment Group");
+
+  expect(bot.toastsTo(operator.id)).toEqual(["Linking the Apartment Group is coming soon."]);
+});
+
+test("the optional Create an Invite step starts creating an Invite", async () => {
+  bot = await startTestBot();
+  await confirmRooms("Room 1\nRoom 2");
+  await bot.tap(operator, "Room 1");
+
   await bot.tap(operator, "✉️ Create an Invite");
 
-  expect(bot.toastsTo(operator.id)).toEqual([
-    "Linking the Apartment Group is coming soon.",
-    "Invites are coming soon.",
-  ]);
+  expect(bot.lastMessageTo(operator.id)).toEqual({
+    id: expect.any(Number),
+    text: "Which Room is the Invite for?",
+    buttons: [["Room 1"], ["Room 2"], ["↩️ Cancel"]],
+  });
 });
 
 test("mid-setup, /start shows the Rooms typed so far, even after the bot restarts", async () => {

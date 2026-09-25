@@ -22,6 +22,8 @@ The database lives at `/data/rooms76.sqlite`; mount a persistent volume at `/dat
 
 Send `/start` to your bot. As the Operator you become the first Admin, and the bot walks you through setup: type the Rooms (their order becomes the Room Order), then pick your own Room. Linking the Apartment Group and inviting the other Residents can wait.
 
+**Inviting the other Residents:** send `/invites` and create an Invite for their Room. You get a single-use link that expires after 7 days; whoever opens it becomes a Resident of that Room straight away. `/invites` also lists the pending Invites so you can revoke them.
+
 **Finding your Telegram user id:** if the bot tells you to ask an Admin for an Invite instead, `OPERATOR_TELEGRAM_ID` is wrong. The bot logs `/start from unknown user <id> (<name>)` with your real id.
 
 ## Development

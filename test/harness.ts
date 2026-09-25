@@ -73,6 +73,8 @@ export interface TestBot {
   keyboardOf(chatId: number): string[][] | undefined;
   /** Texts of the notifications shown to a user after tapping inline buttons, in order. */
   toastsTo(userId: number): string[];
+  /** Moves the fake clock to this instant. */
+  setNow(now: Date): void;
   sendPrivateMessage(from: TelegramUser, text: string): Promise<void>;
   /** Taps the inline button with this text on the newest message in the user's private chat that has it. */
   tap(from: TelegramUser, buttonText: string): Promise<void>;
@@ -99,7 +101,8 @@ export async function startTestBot(options: TestBotOptions = {}): Promise<TestBo
   const toasts: { userId: number; text: string }[] = [];
   let nextUpdateId = 1;
   let nextMessageId = 1;
-  const clock = { now: () => options.now ?? new Date("2026-09-25T10:00:00Z") };
+  let now = options.now ?? new Date("2026-09-25T10:00:00Z");
+  const clock = { now: () => now };
   const unixTime = () => Math.floor(clock.now().getTime() / 1000);
 
   const app: App = await startApp({
@@ -191,6 +194,9 @@ export async function startTestBot(options: TestBotOptions = {}): Promise<TestBo
       return asChatMessage(message);
     },
     keyboardOf: (chatId) => replyKeyboards.get(chatId),
+    setNow: (instant) => {
+      now = instant;
+    },
     toastsTo: (userId) => toasts.filter((toast) => toast.userId === userId).map((toast) => toast.text),
     sendPrivateMessage: (from, text) => {
       const isCommand = text.startsWith("/");

@@ -10,6 +10,11 @@ const ADD_ITEM = "➕ Add item";
 /** Shown with the keyboard, so Residents know what it's for. */
 export const SHOP_MODE_HINT = "Use the keyboard below to shop, report what ran out and add items.";
 
+/** Whether this text is one of the Shop mode buttons. */
+export function isShopButton(text: string): boolean {
+  return [SHOPPING_LIST, SOMETHING_RAN_OUT, SCAN, ADD_ITEM].includes(text);
+}
+
 export function shopKeyboard(scannerUrl: string | null): Keyboard {
   const keyboard = new Keyboard().text(SHOPPING_LIST).text(SOMETHING_RAN_OUT).row();
   if (scannerUrl !== null) keyboard.text(SCAN);
