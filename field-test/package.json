@@ -1,0 +1,20 @@
+{
+  "name": "rooms76-field-test",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "build": "./build-page.sh",
+    "bot": "node bot.mjs"
+  },
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "grammy": "^1.46.0",
+    "zxing-wasm": "^3.1.4"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "private": "true"
+}
