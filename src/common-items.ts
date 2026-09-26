@@ -1,9 +1,9 @@
-// The Common Items service: what the Apartment buys together, the Purchases of it
-// and whose Turn it is to buy it next.
-import { and, asc, desc, eq, isNull, sql, type SQL } from "drizzle-orm";
+// The Common Items service: what the Apartment buys together, the Purchases of it,
+// whose Turn it is to buy it next and whether it ran out.
+import { and, asc, desc, eq, gt, isNull, sql, type SQL } from "drizzle-orm";
 import { dateIn, formatInstant, type Clock } from "./clock.ts";
 import type { Db } from "./db/database.ts";
-import { commonItems, persons, purchases, rooms, rotationCounts, stays } from "./db/schema.ts";
+import { commonItems, persons, purchases, rooms, rotationCounts, runOuts, stays } from "./db/schema.ts";
 import { isCurrentStay, type Residents } from "./residents.ts";
 import { complete, reentryCount, turn, type Rotation } from "./rotation.ts";
 
@@ -36,6 +36,8 @@ export interface RecordedPurchase {
   turn: RotationRoom | null;
   /** The Room the Purchase passed the Turn to, whose Residents should hear about it. */
   passedTo: RotationRoom | null;
+  /** True when the Purchase cleared the Common Item's Run Out. */
+  clearedRunOut: boolean;
 }
 
 /** A Purchase that still counts: neither undone nor voided. */
@@ -53,6 +55,31 @@ export interface CountingPurchase {
 export interface UncountedPurchase {
   item: CommonItem;
   /** Whose Turn it is now, or null when no Purchase of the Common Item counts any more. */
+  turn: RotationRoom | null;
+  /** True when the Purchase had cleared a Run Out, which is open again now. */
+  reopenedRunOut: boolean;
+}
+
+/** A Common Item in the list of all of them. */
+export interface ListedItem extends CommonItem {
+  /** True while it's reported as Run Out. */
+  ranOut: boolean;
+}
+
+/** An open Run Out: a Common Item reported as Run Out, neither bought since nor retracted. */
+export interface RunOut {
+  id: number;
+  item: CommonItem;
+  reporter: { telegramId: number; name: string };
+}
+
+/** What reporting a Run Out did. */
+export interface ReportedRunOut {
+  /** The open Run Out of the Common Item: the one just reported, or the one reported before. */
+  runOut: RunOut;
+  /** True when the Common Item was reported already, so nothing changed. */
+  alreadyReported: boolean;
+  /** Whose Turn it is to buy the Common Item, or null when nobody has bought it yet. */
   turn: RotationRoom | null;
 }
 
@@ -113,6 +140,22 @@ export interface CommonItems {
    * null when it no longer counted anyway.
    */
   voidPurchase(adminTelegramId: number, purchaseId: number): UncountedPurchase | null;
+  /** The Common Items not archived, by name. */
+  list(): ListedItem[];
+  /**
+   * Reports that a Common Item ran out. Returns null when there's no such Common Item.
+   * A Common Item already reported stays as it was.
+   */
+  reportRunOut(telegramId: number, itemId: number): ReportedRunOut | null;
+  /** The Run Out with this id while it's open, or null once it's cleared or retracted. */
+  openRunOut(runOutId: number): RunOut | null;
+  /** Whether this Resident may retract the Run Out: they reported it, or they're an Admin. */
+  mayRetract(telegramId: number, runOut: RunOut): boolean;
+  /**
+   * Retracts a Run Out: the Common Item hasn't run out after all. Only its reporter and
+   * Admins retract it. Returns null when it isn't open any more.
+   */
+  retractRunOut(telegramId: number, runOutId: number): RunOut | null;
 }
 
 /** How many of the latest Purchases an Admin picks from to void one. */
@@ -182,7 +225,8 @@ export function createCommonItems(
   /**
    * Stops a Purchase counting, and says whose Turn it is now. Its Room's count goes back
    * down. The Rotation Start is the Room of the first Purchase that still counts; with
-   * none left, the Rotation starts over.
+   * none left, the Rotation starts over. A Run Out the Purchase cleared is open again,
+   * unless the Common Item was bought since or reported again.
    */
   function uncount(tx: Db, purchase: { id: number; commonItemId: number; roomId: number }): UncountedPurchase {
     tx.update(rotationCounts)
@@ -200,8 +244,51 @@ export function createCommonItems(
       .set({ rotationStartRoomId: first?.roomId ?? null })
       .where(eq(commonItems.id, purchase.commonItemId))
       .run();
+    const boughtSince = tx
+      .select({ id: purchases.id })
+      .from(purchases)
+      .where(and(eq(purchases.commonItemId, purchase.commonItemId), gt(purchases.id, purchase.id), stillCounts()))
+      .get();
+    let reopenedRunOut = false;
+    if (!boughtSince && !openRunOutOf(tx, purchase.commonItemId)) {
+      const reopened = tx.update(runOuts).set({ clearedBy: null }).where(eq(runOuts.clearedBy, purchase.id)).returning().get();
+      reopenedRunOut = reopened !== undefined;
+    }
     const item = itemWithId(tx, purchase.commonItemId)!;
-    return { item: { id: item.id, name: item.name }, turn: currentTurn(tx, item) };
+    return { item: { id: item.id, name: item.name }, turn: currentTurn(tx, item), reopenedRunOut };
+  }
+
+  /** The open Run Out that meets this condition, of a Common Item not archived, or null when there's none. */
+  function openRunOutWhere(tx: Db, condition: SQL): RunOut | null {
+    const runOut = tx
+      .select({
+        id: runOuts.id,
+        itemId: commonItems.id,
+        itemName: commonItems.name,
+        reporterTelegramId: persons.telegramId,
+        reporterName: persons.name,
+      })
+      .from(runOuts)
+      .innerJoin(commonItems, eq(commonItems.id, runOuts.commonItemId))
+      .innerJoin(persons, eq(persons.id, runOuts.reportedBy))
+      .where(and(condition, isOpen(), eq(commonItems.archived, false)))
+      .get();
+    if (!runOut) return null;
+    return {
+      id: runOut.id,
+      item: { id: runOut.itemId, name: runOut.itemName },
+      reporter: { telegramId: runOut.reporterTelegramId, name: runOut.reporterName },
+    };
+  }
+
+  /** The Common Item's open Run Out, or null when it hasn't run out. */
+  function openRunOutOf(tx: Db, itemId: number): RunOut | null {
+    return openRunOutWhere(tx, eq(runOuts.commonItemId, itemId));
+  }
+
+  /** The id of this Resident's person, whether or not they live here now. */
+  function personIdOf(tx: Db, telegramId: number): number {
+    return tx.select({ id: persons.id }).from(persons).where(eq(persons.telegramId, telegramId)).get()!.id;
   }
 
   /** Whose Turn it is to buy this Common Item, or null when nobody has bought it yet. */
@@ -349,9 +436,18 @@ export function createCommonItems(
             .onConflictDoUpdate({ target: [rotationCounts.commonItemId, rotationCounts.roomId], set: { count } })
             .run();
         }
-        tx.insert(purchases)
+        const recorded = tx
+          .insert(purchases)
           .values({ commonItemId: item.id, roomId: buyer.roomId, personId: buyer.personId, purchasedAt: clock.now() })
-          .run();
+          .returning({ id: purchases.id })
+          .get();
+        // Any Purchase clears the Run Out, whoever's Turn it was.
+        const cleared = tx
+          .update(runOuts)
+          .set({ clearedBy: recorded.id })
+          .where(and(eq(runOuts.commonItemId, item.id), isOpen()))
+          .returning()
+          .get();
 
         const occupied = occupiedRooms(tx);
         const roomWithId = (roomId: number | null) => (roomId === null ? null : occupied.get(roomId)!);
@@ -362,6 +458,7 @@ export function createCommonItems(
           outOfTurn: roomWithId(purchase.outOfTurn),
           turn: roomWithId(purchase.turn),
           passedTo: roomWithId(purchase.passedTo),
+          clearedRunOut: cleared !== undefined,
         };
       });
     },
@@ -398,9 +495,58 @@ export function createCommonItems(
           .get();
         const item = purchase && itemWithId(tx, purchase.commonItemId);
         if (!purchase || !item) return null;
-        const admin = tx.select({ id: persons.id }).from(persons).where(eq(persons.telegramId, adminTelegramId)).get()!;
-        tx.update(purchases).set({ voidedAt: clock.now(), voidedBy: admin.id }).where(eq(purchases.id, purchase.id)).run();
+        tx.update(purchases)
+          .set({ voidedAt: clock.now(), voidedBy: personIdOf(tx, adminTelegramId) })
+          .where(eq(purchases.id, purchase.id))
+          .run();
         return uncount(tx, purchase);
+      });
+    },
+
+    list() {
+      return db
+        .select({ id: commonItems.id, name: commonItems.name, runOutId: runOuts.id })
+        .from(commonItems)
+        .leftJoin(runOuts, and(eq(runOuts.commonItemId, commonItems.id), isOpen()))
+        .where(eq(commonItems.archived, false))
+        .orderBy(asc(sql`lower(${commonItems.name})`))
+        .all()
+        .map((item) => ({ id: item.id, name: item.name, ranOut: item.runOutId !== null }));
+    },
+
+    reportRunOut(telegramId, itemId) {
+      return db.transaction((tx) => {
+        const item = itemWithId(tx, itemId);
+        if (!item) return null;
+        const alreadyOpen = openRunOutOf(tx, item.id);
+        if (!alreadyOpen) {
+          tx.insert(runOuts)
+            .values({ commonItemId: item.id, reportedBy: personIdOf(tx, telegramId), reportedAt: clock.now() })
+            .run();
+        }
+        const runOut = alreadyOpen ?? openRunOutOf(tx, item.id)!;
+        return { runOut, alreadyReported: alreadyOpen !== null, turn: currentTurn(tx, item) };
+      });
+    },
+
+    openRunOut(runOutId) {
+      return openRunOutWhere(db, eq(runOuts.id, runOutId));
+    },
+
+    mayRetract(telegramId, runOut) {
+      return runOut.reporter.telegramId === telegramId || (residents.current(telegramId)?.isAdmin ?? false);
+    },
+
+    retractRunOut(telegramId, runOutId) {
+      return db.transaction((tx) => {
+        const runOut = openRunOutWhere(tx, eq(runOuts.id, runOutId));
+        if (!runOut) return null;
+        if (!items.mayRetract(telegramId, runOut)) throw new Error("Only the reporter or an Admin retracts a Run Out");
+        tx.update(runOuts)
+          .set({ retractedAt: clock.now(), retractedBy: personIdOf(tx, telegramId) })
+          .where(eq(runOuts.id, runOut.id))
+          .run();
+        return runOut;
       });
     },
   };
@@ -410,6 +556,11 @@ export function createCommonItems(
 /** The SQL condition for Purchases that still count: neither undone nor voided. */
 function stillCounts() {
   return and(isNull(purchases.undoneAt), isNull(purchases.voidedAt));
+}
+
+/** The SQL condition for Run Outs that are open: neither cleared by a Purchase nor retracted. */
+function isOpen() {
+  return and(isNull(runOuts.clearedBy), isNull(runOuts.retractedAt));
 }
 
 /** Whether the text mentions this name as whole words, in the singular or plural, ignoring case. */

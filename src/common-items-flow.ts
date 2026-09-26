@@ -1,12 +1,23 @@
-// Common Items in Telegram: adding them with ➕ Add item, recording Purchases by typing
-// what happened, e.g. “bought kitchen paper”, and each Common Item's card with ⋯ More.
+// Common Items in Telegram: adding them with ➕ Add item, recording Purchases and
+// reporting Run Outs by typing what happened, e.g. “bought kitchen paper” or “dish soap
+// ran out”, and each Common Item's card with ⋯ More.
 import { Composer, InlineKeyboard, type CallbackQueryContext, type Context } from "grammy";
 import type { InlineKeyboardButton } from "grammy/types";
+import type { ApartmentGroup } from "./apartment-group.ts";
 import type { ChatState, ChatStates } from "./chat-states.ts";
-import { commonItemName, type CommonItem, type CommonItems, type RecordedPurchase, type RotationRoom } from "./common-items.ts";
-import { notifyPurchase } from "./notifier.ts";
+import {
+  commonItemName,
+  type CommonItem,
+  type CommonItems,
+  type RecordedPurchase,
+  type ReportedRunOut,
+  type RotationRoom,
+  type RunOut,
+  type UncountedPurchase,
+} from "./common-items.ts";
+import { notifyPurchase, notifyRunOutReported, notifyRunOutRetracted, notifyUncounted, roomLabel } from "./notifier.ts";
 import type { Residents } from "./residents.ts";
-import { ADD_ITEM, RUN_OUTS_COMING_SOON } from "./shop-mode.ts";
+import { ADD_ITEM, SOMETHING_RAN_OUT } from "./shop-mode.ts";
 
 /** “bought kitchen paper”, “I just got dish soap”: the verb, then what was bought. */
 const BOUGHT = /^(?:i\s+)?(?:just\s+)?(?:bought|got|purchased|picked\s+up)\s+(.+)$/i;
@@ -25,6 +36,7 @@ const ROUGH_GUESSES: [label: string, days: number][] = [
 export function commonItemsFlow(
   items: CommonItems,
   residents: Residents,
+  apartmentGroup: ApartmentGroup,
   chatStates: ChatStates,
   log: (line: string) => void,
 ): Composer<Context> {
@@ -43,9 +55,43 @@ export function commonItemsFlow(
     const purchase = items.recordPurchase(ctx.from!.id, itemId);
     if (!purchase) return false;
     await answer(purchaseText(purchase));
-    await notifyPurchase(ctx.api, purchase, log);
+    await notifyPurchase(ctx.api, apartmentGroup, purchase, log);
     return true;
   };
+
+  /** Reports a Run Out, answers the reporter and tells the group and the Turn Room. */
+  const reportRunOut = async (
+    ctx: Context,
+    itemId: number,
+    answer: (text: string, buttons: InlineKeyboard | undefined) => Promise<unknown>,
+  ) => {
+    const reporter = ctx.from!.id;
+    const report = items.reportRunOut(reporter, itemId);
+    if (!report) return false;
+    if (report.alreadyReported) {
+      await answer(alreadyReportedText(report.runOut, reporter), retractButton(items, report.runOut, reporter));
+      return true;
+    }
+    const text = `⚠️ Reported: ${report.runOut.item.name} ran out.\n${turnLine(report.turn, reporter)}`;
+    await answer(text, reportedButtons(report, reporter));
+    await notifyRunOutReported(ctx.api, apartmentGroup, report, log);
+    return true;
+  };
+
+  composer.hears(SOMETHING_RAN_OUT, async (ctx) => {
+    const all = items.list();
+    const reportable = all.filter((item) => !item.ranOut);
+    if (reportable.length === 0) {
+      await ctx.reply(
+        all.length > 0
+          ? `⚠️ Everything is already reported as Run Out. To report something new, tap ${ADD_ITEM} first.`
+          : `⚠️ There are no Common Items yet. To report something, tap ${ADD_ITEM} first.`,
+      );
+      return;
+    }
+    const buttons = reportable.map((item) => [InlineKeyboard.text(item.name, `runout:report:${item.id}`)]);
+    await ctx.reply("⚠️ What ran out?", { reply_markup: InlineKeyboard.from(buttons) });
+  });
 
   composer.hears(ADD_ITEM, async (ctx) => {
     chatStates.set(ctx.chat.id, { flow: "item-name" });
@@ -88,12 +134,8 @@ export function commonItemsFlow(
   composer.on("message:text", async (ctx) => {
     const text = ctx.message.text.trim();
     if (text.startsWith("/")) return;
-    if (RAN_OUT.test(text)) {
-      await ctx.reply(RUN_OUTS_COMING_SOON);
-      return;
-    }
-
-    const bought = text.match(BOUGHT)?.[1];
+    const ranOut = RAN_OUT.test(text);
+    const bought = ranOut ? undefined : text.match(BOUGHT)?.[1];
     const item = items.mentionedIn(bought ?? text);
     if (item?.archived && isAdmin(ctx.from.id)) {
       await ctx.reply(`🗄 ${item.name} is archived.`, {
@@ -103,6 +145,16 @@ export function commonItemsFlow(
     }
     if (item?.archived) {
       await ctx.reply(`🗄 ${item.name} is archived. Ask an Admin to restore it.`);
+      return;
+    }
+    if (item && ranOut) {
+      await reportRunOut(ctx, item.id, (text, buttons) => ctx.reply(text, { reply_markup: buttons }));
+      return;
+    }
+    if (ranOut) {
+      await ctx.reply(
+        `I don't know what ran out in “${text}”. Tap ${SOMETHING_RAN_OUT} to pick it, or ${ADD_ITEM} to add it.`,
+      );
       return;
     }
     if (item && bought !== undefined) {
@@ -124,6 +176,28 @@ export function commonItemsFlow(
       reply_markup: new InlineKeyboard().text(`➕ Add “${name}”`, "item:add"),
     });
     chatStates.set(ctx.chat.id, { flow: "new-item", name, messageId: offer.message_id });
+  });
+
+  // A Common Item picked after ⚠️ Something ran out.
+  composer.callbackQuery(/^runout:report:(\d+)$/, async (ctx) => {
+    const reported = await reportRunOut(ctx, Number(ctx.match[1]), async (text, buttons) => {
+      await ctx.answerCallbackQuery();
+      await ctx.editMessageText(text, { reply_markup: buttons });
+    });
+    if (!reported) await answerOutOfDate(ctx);
+  });
+
+  composer.callbackQuery(/^runout:retract:(\d+)$/, async (ctx) => {
+    const runOut = items.openRunOut(Number(ctx.match[1]));
+    if (!runOut) return answerOutOfDate(ctx);
+    if (!items.mayRetract(ctx.from.id, runOut)) {
+      return ctx.answerCallbackQuery("Only whoever reported it or an Admin can retract a Run Out.");
+    }
+    const retracted = items.retractRunOut(ctx.from.id, runOut.id);
+    if (!retracted) return answerOutOfDate(ctx);
+    await ctx.answerCallbackQuery();
+    await ctx.editMessageText(`↩️ Retracted the Run Out of ${retracted.item.name}.`);
+    await notifyRunOutRetracted(ctx.api, apartmentGroup, retracted, residents.current(ctx.from.id)!.name, log);
   });
 
   composer.callbackQuery("item:add", async (ctx) => {
@@ -257,8 +331,9 @@ export function commonItemsFlow(
     if (!undone) return answerOutOfDate(ctx);
     await ctx.answerCallbackQuery();
     await ctx.editMessageText(
-      `↩️ Undone: your Purchase of ${undone.item.name} no longer counts.\n${turnLine(undone.turn, ctx.from.id)}`,
+      `↩️ Undone: your Purchase of ${undone.item.name} no longer counts.\n${uncountedLines(undone, ctx.from.id)}`,
     );
+    await notifyUncounted(ctx.api, apartmentGroup, undone, `${residents.current(ctx.from.id)!.name} undid their Purchase`, log);
   });
 
   composer.callbackQuery(/^item:void-pick:(\d+)$/, async (ctx) => {
@@ -280,16 +355,19 @@ export function commonItemsFlow(
     await ctx.answerCallbackQuery();
     await ctx.editMessageText(
       `🗑 Voided: ${purchase.buyerName}'s Purchase of ${voided.item.name} no longer counts.\n` +
-        turnLine(voided.turn, ctx.from.id),
+        uncountedLines(voided, ctx.from.id),
     );
+    const how = `${residents.current(ctx.from.id)!.name} voided ${purchase.buyerName}'s Purchase`;
+    await notifyUncounted(ctx.api, apartmentGroup, voided, how, log);
   });
 
   return composer;
 }
 
 /** The reply to a Purchase, stating its effect on the Rotation. */
-function purchaseText({ item, buyer, startedRotation, outOfTurn, turn }: RecordedPurchase): string {
+function purchaseText({ item, buyer, startedRotation, outOfTurn, turn, clearedRunOut }: RecordedPurchase): string {
   const lines = [`✅ Recorded: you bought ${item.name}.`];
+  if (clearedRunOut) lines.push("The Run Out is cleared.");
   if (startedRotation) lines.push(`You're the first to buy it, so ${buyer.room.name} starts its Rotation.`);
   if (outOfTurn) {
     lines.push(
@@ -299,6 +377,35 @@ function purchaseText({ item, buyer, startedRotation, outOfTurn, turn }: Recorde
     lines.push(`Next Turn: ${turn.id === buyer.room.id ? "your Room again" : roomLabel(turn)}.`);
   }
   return lines.join("\n");
+}
+
+/** What's left after undoing or voiding a Purchase: whether it's Run Out again, and whose Turn it is. */
+function uncountedLines(uncounted: UncountedPurchase, telegramId: number): string {
+  const turn = turnLine(uncounted.turn, telegramId);
+  return uncounted.reopenedRunOut ? `${uncounted.item.name} is Run Out again.\n${turn}` : turn;
+}
+
+/** The answer to reporting a Common Item that's already reported. */
+function alreadyReportedText(runOut: RunOut, telegramId: number): string {
+  const by = runOut.reporter.telegramId === telegramId ? "you" : runOut.reporter.name;
+  return `⚠️ ${runOut.item.name} is already reported as Run Out, by ${by}.`;
+}
+
+/** The buttons under a Run Out just reported: buy it when it's the reporter's to buy, and retract it. */
+function reportedButtons({ runOut, turn }: ReportedRunOut, telegramId: number): InlineKeyboard {
+  const buttons = new InlineKeyboard();
+  const theirsToBuy = turn === null || turn.residents.some((resident) => resident.telegramId === telegramId);
+  if (theirsToBuy) buttons.text("✅ I bought it", `item:bought:${runOut.item.id}`).row();
+  return buttons.add(retract(runOut));
+}
+
+/** A button to retract the Run Out, when this Resident may. */
+function retractButton(items: CommonItems, runOut: RunOut, telegramId: number): InlineKeyboard | undefined {
+  return items.mayRetract(telegramId, runOut) ? InlineKeyboard.from([[retract(runOut)]]) : undefined;
+}
+
+function retract(runOut: RunOut): InlineKeyboardButton {
+  return InlineKeyboard.text("↩️ Retract", `runout:retract:${runOut.id}`);
 }
 
 /** A Common Item and whose Turn it is to buy it. */
@@ -326,11 +433,6 @@ function backButton(itemId: number): InlineKeyboardButton {
 /** Confirms an action on a Common Item; “No, keep it” goes back to its card. */
 function yesOrKeepIt(yes: string, yesData: string, itemId: number): InlineKeyboard {
   return new InlineKeyboard().text(yes, yesData).text("No, keep it", `item:card:${itemId}`);
-}
-
-/** A Room and who lives in it, e.g. “Room B (Ana, Tomás)”. */
-function roomLabel(room: RotationRoom): string {
-  return `${room.name} (${room.residents.map((resident) => resident.name).join(", ")})`;
 }
 
 /** The Residents taking part, addressed: “you” or “the 3 of you”. */

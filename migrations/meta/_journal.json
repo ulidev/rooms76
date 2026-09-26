@@ -43,6 +43,13 @@
       "when": 1790411147010,
       "tag": "0005_apartment_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790412114375,
+      "tag": "0006_run_outs",
+      "breakpoints": true
     }
   ]
 }

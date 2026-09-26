@@ -1,7 +1,7 @@
 // The database schema. Migrations in `migrations/` are generated from this file
 // with `npm run db:generate` and committed; they run automatically at startup.
 import { sql } from "drizzle-orm";
-import { check, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { check, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { ChatState } from "../chat-states.ts";
 
 export const rooms = sqliteTable("rooms", {
@@ -120,6 +120,35 @@ export const purchases = sqliteTable("purchases", {
   /** The Admin who voided it. */
   voidedBy: integer("voided_by").references(() => persons.id),
 });
+
+/**
+ * A Resident reporting that a Common Item is finished. It's open until a Purchase clears it
+ * or it's retracted; a Common Item has at most one open Run Out.
+ */
+export const runOuts = sqliteTable(
+  "run_outs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    commonItemId: integer("common_item_id")
+      .notNull()
+      .references(() => commonItems.id),
+    reportedBy: integer("reported_by")
+      .notNull()
+      .references(() => persons.id),
+    reportedAt: integer("reported_at", { mode: "timestamp_ms" }).notNull(),
+    /** The Purchase that cleared it. Undoing or voiding that Purchase may reopen it. */
+    clearedBy: integer("cleared_by").references(() => purchases.id),
+    /** When the reporter or an Admin retracted it. */
+    retractedAt: integer("retracted_at", { mode: "timestamp_ms" }),
+    /** Who retracted it. */
+    retractedBy: integer("retracted_by").references(() => persons.id),
+  },
+  (table) => [
+    uniqueIndex("one_open_run_out_per_item")
+      .on(table.commonItemId)
+      .where(sql`cleared_by IS NULL AND retracted_at IS NULL`),
+  ],
+);
 
 /** Settings of the Apartment as a whole. It has exactly one row, with id 1, once anything is set. */
 export const apartmentSettings = sqliteTable(

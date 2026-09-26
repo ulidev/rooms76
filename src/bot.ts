@@ -71,7 +71,7 @@ export function createBot(botToken: string, { residents, setup, invites, commonI
   bot.chatType("private").use(inviteManagement(invites, residents, chatStates));
   bot.chatType("private").use(renameFlow(residents, chatStates));
   bot.chatType("private").use(shopMode(residents, scannerUrl));
-  bot.chatType("private").use(commonItemsFlow(commonItems, residents, chatStates, log));
+  bot.chatType("private").use(commonItemsFlow(commonItems, residents, apartmentGroup, chatStates, log));
 
   bot.catch((error) => log(`Error while handling update ${error.ctx.update.update_id}: ${String(error.error)}`));
 

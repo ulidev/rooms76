@@ -172,14 +172,6 @@ test("an offer to add a Common Item is out of date once another text replaces it
   expect(bot.toastsTo(lena.id)).toEqual(["This button is out of date."]);
 });
 
-test("reporting what ran out through free text isn't there yet, and doesn't offer a new Common Item", async () => {
-  await apartmentSetUpByLena();
-
-  await bot.sendPrivateMessage(lena, "dish soap ran out");
-
-  expect(bot.lastMessageTo(lena.id).text).toBe("⚠️ Reporting what ran out is coming soon.");
-});
-
 test("typing a Common Item's name shows whose Turn it is, with a button to record a Purchase", async () => {
   await apartmentSetUpByLena();
   await addItem(lena, "Bin bags");
