@@ -30,19 +30,23 @@ export interface DurationHistory {
   headcountNow: number;
 }
 
-export type Urgency = "run-out" | "due-soon" | "not-yet";
+/** The Urgencies, most pressing first. */
+const URGENCIES = ["run-out", "due-soon", "not-yet"] as const;
+
+export type Urgency = (typeof URGENCIES)[number];
 
 /** How pressing a Common Item is at an instant. */
 export interface Assessment {
   /** The Expected Duration in days for the Residents taking part now, or null when there's no estimate. */
   expectedDuration: number | null;
   urgency: Urgency;
+  /** How long its Run Out has stood, in milliseconds; ranks Run Outs. Null when it isn't Run Out. */
+  runOutFor: number | null;
   /**
-   * What ranks it within its Urgency, higher first: for Run Out, how long it has stood (ms);
-   * otherwise the share of its Expected Duration that has passed since the last Purchase.
-   * Null when it has no estimate or was never bought.
+   * The share of its Expected Duration that has passed since the last Purchase, e.g. 0.5 halfway;
+   * ranks the others. Null when it has no estimate or was never bought.
    */
-  score: number | null;
+  elapsedShare: number | null;
 }
 
 /**
@@ -60,28 +64,31 @@ export function expectedDuration({ purchases, stays, roughGuess, headcountNow }:
   return median(learned) / headcountNow;
 }
 
-/** A Common Item's Expected Duration, Urgency and ranking score at an instant. */
+/** A Common Item's Expected Duration, Urgency and what ranks it, at an instant. */
 export function assess(input: DurationHistory & { runOutSince: number | null; now: number }): Assessment {
   const duration = expectedDuration(input);
-  if (input.runOutSince !== null) {
-    return { expectedDuration: duration, urgency: "run-out", score: input.now - input.runOutSince };
-  }
   const lastPurchase = input.purchases.length === 0 ? null : Math.max(...input.purchases);
-  if (duration === null || lastPurchase === null) return { expectedDuration: duration, urgency: "not-yet", score: null };
-  const elapsed = (input.now - lastPurchase) / DAY;
+  const elapsed = lastPurchase === null ? null : (input.now - lastPurchase) / DAY;
   // Something that lasts no time at all is due as soon as it's bought.
-  const share = duration > 0 ? elapsed / duration : Infinity;
-  return { expectedDuration: duration, urgency: share >= DUE_SOON_SHARE ? "due-soon" : "not-yet", score: share };
+  const elapsedShare = duration === null || elapsed === null ? null : duration > 0 ? elapsed / duration : Infinity;
+  const runOutFor = input.runOutSince === null ? null : input.now - input.runOutSince;
+  const urgency =
+    runOutFor !== null ? "run-out" : elapsedShare !== null && elapsedShare >= DUE_SOON_SHARE ? "due-soon" : "not-yet";
+  return { expectedDuration: duration, urgency, runOutFor, elapsedShare };
 }
 
-const URGENCY_RANK: Record<Urgency, number> = { "run-out": 0, "due-soon": 1, "not-yet": 2 };
-
-/** Orders assessments most pressing first: by Urgency, then by score, those without a score last. */
+/**
+ * The ranking: orders assessments most pressing first. By Urgency; then Run Outs longest-standing
+ * first, and the others by the share of their Expected Duration that has passed, those without one last.
+ */
 export function byUrgency(a: Assessment, b: Assessment): number {
-  const levels = URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency];
+  const levels = URGENCIES.indexOf(a.urgency) - URGENCIES.indexOf(b.urgency);
   if (levels !== 0) return levels;
-  if (a.score === null || b.score === null) return (a.score === null ? 1 : 0) - (b.score === null ? 1 : 0);
-  return b.score - a.score;
+  if (a.urgency === "run-out") return b.runOutFor! - a.runOutFor!;
+  if (a.elapsedShare === null || b.elapsedShare === null) {
+    return (a.elapsedShare === null ? 1 : 0) - (b.elapsedShare === null ? 1 : 0);
+  }
+  return b.elapsedShare - a.elapsedShare;
 }
 
 /** The person-days lived between two instants: each Resident's days here, added up. */

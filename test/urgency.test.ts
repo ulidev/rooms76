@@ -87,31 +87,32 @@ test("there's no Overdue: past its Expected Duration a Common Item stays Due soo
   const dueSoon = assessed([0, 8], 14);
   const pastIt = assessed([0, 8], 30);
   expect(pastIt.urgency).toBe("due-soon");
-  expect(pastIt.score).toBeGreaterThan(dueSoon.score!);
+  expect(pastIt.elapsedShare).toBeGreaterThan(dueSoon.elapsedShare!);
 });
 
-test("the score of a Common Item not Run Out is the share of its Expected Duration that has passed", () => {
+test("a Common Item not Run Out is ranked by the share of its Expected Duration that has passed", () => {
   const item = assessed([0, 8], 12);
   expect(item.expectedDuration).toBe(8);
-  expect(item.score).toBe(0.5);
+  expect(item.elapsedShare).toBe(0.5);
+  expect(item.runOutFor).toBe(null);
 });
 
 test("an uncleared Run Out makes a Common Item Run Out, whatever the clock says", () => {
   const item = assessed([0, 8], 9, { runOutSince: 8.5 });
   expect(item.urgency).toBe("run-out");
-  expect(item.score).toBe(0.5 * DAY);
+  expect(item.runOutFor).toBe(0.5 * DAY);
 });
 
-test("a Common Item without an estimate is Not yet and has no score", () => {
+test("a Common Item without an estimate is Not yet and has no share of it passed", () => {
   const item = assessed([0], 400);
-  expect(item).toEqual({ expectedDuration: null, urgency: "not-yet", score: null });
+  expect(item).toEqual({ expectedDuration: null, urgency: "not-yet", runOutFor: null, elapsedShare: null });
 });
 
-test("a Common Item that was never bought has no score, even with a rough guess", () => {
+test("a Common Item that was never bought has no share of its Expected Duration passed, even with a rough guess", () => {
   const item = assessed([], 400, { roughGuess: 7 });
   expect(item.expectedDuration).toBe(7);
   expect(item.urgency).toBe("not-yet");
-  expect(item.score).toBe(null);
+  expect(item.elapsedShare).toBe(null);
 });
 
 test("Common Items rank Run Out first, longest-standing first, then by share of Expected Duration, and no estimate last", () => {

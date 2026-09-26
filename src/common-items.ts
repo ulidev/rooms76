@@ -160,8 +160,11 @@ export interface CommonItems {
   voidPurchase(adminTelegramId: number, purchaseId: number): UncountedPurchase | null;
   /** The Common Items not archived, by name. */
   list(): ListedItem[];
-  /** What this Resident should buy: their Room's Turn and what anyone may buy, by Urgency. */
-  shoppingList(telegramId: number): ShoppingList;
+  /**
+   * What this Resident should buy: their Room's Turn and what anyone may buy, by Urgency.
+   * Null when there are no Common Items at all.
+   */
+  shoppingList(telegramId: number): ShoppingList | null;
   /**
    * Reports that a Common Item ran out. Returns null when there's no such Common Item.
    * A Common Item already reported stays as it was.
@@ -598,8 +601,10 @@ export function createCommonItems(
     },
 
     shoppingList(telegramId) {
+      const assessed = assessedItems(db);
+      if (assessed.length === 0) return null;
       const list: ShoppingList = { yourTurn: [], anyone: [], yourTurnLater: [] };
-      for (const { item, turn, assessment } of assessedItems(db)) {
+      for (const { item, turn, assessment } of assessed) {
         const line = {
           id: item.id,
           name: item.name,

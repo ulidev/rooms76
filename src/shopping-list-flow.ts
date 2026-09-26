@@ -10,11 +10,8 @@ export function shoppingListFlow(items: CommonItems): Composer<Context> {
   const composer = new Composer<Context>();
 
   composer.hears(SHOPPING_LIST, async (ctx) => {
-    if (items.list().length === 0) {
-      await ctx.reply(`🛒 There are no Common Items yet. To add one, tap ${ADD_ITEM}.`);
-      return;
-    }
-    await ctx.reply(shoppingListText(items.shoppingList(ctx.from!.id)));
+    const list = items.shoppingList(ctx.from!.id);
+    await ctx.reply(list ? shoppingListText(list) : `🛒 There are no Common Items yet. To add one, tap ${ADD_ITEM}.`);
   });
 
   return composer;
