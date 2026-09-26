@@ -29,14 +29,12 @@ test("a Resident's /start greets them in their Room with the Shop mode keyboard"
   ]);
 });
 
-test("the Shop mode buttons whose features don't exist yet say so", async () => {
+test("the Scan button says scanning doesn't exist yet", async () => {
   await apartmentSetUpByLena();
 
-  for (const button of ["🛒 Shopping list", "📷 Scan"]) {
-    await bot.sendPrivateMessage(lena, button);
-  }
+  await bot.sendPrivateMessage(lena, "📷 Scan");
 
-  expect(bot.messagesTo(lena.id).slice(-2)).toEqual(["🛒 The shopping list is coming soon.", "📷 Scanning is coming soon."]);
+  expect(bot.lastMessageTo(lena.id).text).toBe("📷 Scanning is coming soon.");
 });
 
 test("the Shop mode keyboard has no Scan button when SCANNER_URL is empty", async () => {

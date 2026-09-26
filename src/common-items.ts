@@ -1,11 +1,12 @@
 // The Common Items service: what the Apartment buys together, the Purchases of it,
 // whose Turn it is to buy it next and whether it ran out.
 import { and, asc, desc, eq, gt, isNull, sql, type SQL } from "drizzle-orm";
-import { dateIn, formatInstant, type Clock } from "./clock.ts";
+import { addDays, dateIn, formatInstant, startOfDay, type Clock } from "./clock.ts";
 import type { Db } from "./db/database.ts";
 import { commonItems, persons, purchases, rooms, rotationCounts, runOuts, stays } from "./db/schema.ts";
 import { isCurrentStay, type Residents } from "./residents.ts";
 import { complete, reentryCount, turn, type Rotation } from "./rotation.ts";
+import { assess, byUrgency, type StaySpan, type Urgency } from "./urgency.ts";
 
 export interface CommonItem {
   id: number;
@@ -83,6 +84,23 @@ export interface ReportedRunOut {
   turn: RotationRoom | null;
 }
 
+/** A line on the shopping list: a Common Item and how pressing it is. */
+export interface ShoppingListLine extends CommonItem {
+  urgency: Urgency;
+  /** True when there's no Expected Duration yet, so it can't become Due soon. */
+  noEstimate: boolean;
+}
+
+/** What a Resident should buy, each section most pressing first. */
+export interface ShoppingList {
+  /** Run Out or Due soon, and their Room's Turn. */
+  yourTurn: ShoppingListLine[];
+  /** Run Out, and nobody's Turn yet. */
+  anyone: ShoppingListLine[];
+  /** Not yet, and their Room's Turn. */
+  yourTurnLater: ShoppingListLine[];
+}
+
 export interface CommonItems {
   /** How many Residents take part in a new Common Item: everyone living in an Occupied Room. */
   headcount(): number;
@@ -142,6 +160,8 @@ export interface CommonItems {
   voidPurchase(adminTelegramId: number, purchaseId: number): UncountedPurchase | null;
   /** The Common Items not archived, by name. */
   list(): ListedItem[];
+  /** What this Resident should buy: their Room's Turn and what anyone may buy, by Urgency. */
+  shoppingList(telegramId: number): ShoppingList;
   /**
    * Reports that a Common Item ran out. Returns null when there's no such Common Item.
    * A Common Item already reported stays as it was.
@@ -330,6 +350,21 @@ export function createCommonItems(
     return countingPurchases(tx, and(eq(persons.telegramId, telegramId), eq(purchases.commonItemId, itemId))!, 1)[0] ?? null;
   }
 
+  /**
+   * When each Resident lived here: every Stay, from the start of its move-in day to the end
+   * of its move-out day. Rooms archived since still count for the time they were lived in.
+   */
+  function staySpans(tx: Db): StaySpan[] {
+    return tx
+      .select({ moveIn: stays.moveIn, moveOut: stays.moveOut })
+      .from(stays)
+      .all()
+      .map((stay) => ({
+        from: startOfDay(apartmentTimeZone, stay.moveIn).getTime(),
+        to: stay.moveOut === null ? null : startOfDay(apartmentTimeZone, addDays(stay.moveOut, 1)).getTime(),
+      }));
+  }
+
   /** Archives or restores a Common Item. Returns null when there's none that isn't that already. */
   function setArchived(itemId: number, archived: boolean): CommonItem | null {
     const item = db
@@ -512,6 +547,61 @@ export function createCommonItems(
         .orderBy(asc(sql`lower(${commonItems.name})`))
         .all()
         .map((item) => ({ id: item.id, name: item.name, ranOut: item.runOutId !== null }));
+    },
+
+    shoppingList(telegramId) {
+      const now = clock.now().getTime();
+      const headcountNow = items.headcount();
+      const spans = staySpans(db);
+      const purchaseTimes = new Map<number, number[]>();
+      for (const purchase of db
+        .select({ itemId: purchases.commonItemId, purchasedAt: purchases.purchasedAt })
+        .from(purchases)
+        .where(stillCounts())
+        .all()) {
+        if (!purchaseTimes.has(purchase.itemId)) purchaseTimes.set(purchase.itemId, []);
+        purchaseTimes.get(purchase.itemId)!.push(purchase.purchasedAt.getTime());
+      }
+      const assessed = db
+        .select({
+          id: commonItems.id,
+          name: commonItems.name,
+          roughGuess: commonItems.roughGuess,
+          rotationStartRoomId: commonItems.rotationStartRoomId,
+          runOutSince: runOuts.reportedAt,
+        })
+        .from(commonItems)
+        .leftJoin(runOuts, and(eq(runOuts.commonItemId, commonItems.id), isOpen()))
+        .where(eq(commonItems.archived, false))
+        .all()
+        .map((item) => ({
+          item,
+          turn: currentTurn(db, item),
+          assessment: assess({
+            purchases: purchaseTimes.get(item.id) ?? [],
+            stays: spans,
+            roughGuess: item.roughGuess,
+            headcountNow,
+            runOutSince: item.runOutSince?.getTime() ?? null,
+            now,
+          }),
+        }))
+        .sort((a, b) => byUrgency(a.assessment, b.assessment));
+
+      const list: ShoppingList = { yourTurn: [], anyone: [], yourTurnLater: [] };
+      for (const { item, turn, assessment } of assessed) {
+        const line = {
+          id: item.id,
+          name: item.name,
+          urgency: assessment.urgency,
+          noEstimate: assessment.expectedDuration === null,
+        };
+        const yours = turn?.residents.some((resident) => resident.telegramId === telegramId) ?? false;
+        if (yours && assessment.urgency === "not-yet") list.yourTurnLater.push(line);
+        else if (yours) list.yourTurn.push(line);
+        else if (turn === null && assessment.urgency === "run-out") list.anyone.push(line);
+      }
+      return list;
     },
 
     reportRunOut(telegramId, itemId) {

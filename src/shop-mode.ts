@@ -2,7 +2,7 @@
 import { Composer, Keyboard, type Context } from "grammy";
 import type { Residents } from "./residents.ts";
 
-const SHOPPING_LIST = "🛒 Shopping list";
+export const SHOPPING_LIST = "🛒 Shopping list";
 export const SOMETHING_RAN_OUT = "⚠️ Something ran out";
 const SCAN = "📷 Scan";
 export const ADD_ITEM = "➕ Add item";
@@ -32,8 +32,7 @@ export function shopMode(residents: Residents, scannerUrl: string | null): Compo
     });
   });
 
-  // Placeholders until each feature lands.
-  composer.hears(SHOPPING_LIST, (ctx) => ctx.reply("🛒 The shopping list is coming soon."));
+  // A placeholder until scanning lands.
   composer.hears(SCAN, (ctx) => ctx.reply("📷 Scanning is coming soon."));
 
   return composer;

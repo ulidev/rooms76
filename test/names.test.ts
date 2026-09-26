@@ -59,7 +59,7 @@ test("a Shop mode button while being asked for a name does what it says and keep
   await bot.sendPrivateMessage(lena, "/name");
 
   await bot.sendPrivateMessage(lena, "🛒 Shopping list");
-  expect(bot.lastMessageTo(lena.id).text).toBe("🛒 The shopping list is coming soon.");
+  expect(bot.lastMessageTo(lena.id).text).toBe("🛒 There are no Common Items yet. To add one, tap ➕ Add item.");
 
   await bot.sendPrivateMessage(lena, "/start");
   expect(bot.lastMessageTo(lena.id).text).toMatch(/^👋 Hi Lena, you're in Room 2\./);

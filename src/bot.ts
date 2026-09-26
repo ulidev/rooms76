@@ -13,6 +13,7 @@ import { renameFlow } from "./name-flow.ts";
 import { guidedSetup, optionalSetupSteps } from "./setup-flow.ts";
 import type { Setup } from "./setup.ts";
 import { isShopButton, shopMode } from "./shop-mode.ts";
+import { shoppingListFlow } from "./shopping-list-flow.ts";
 
 export interface BotServices {
   residents: Residents;
@@ -71,6 +72,7 @@ export function createBot(botToken: string, { residents, setup, invites, commonI
   bot.chatType("private").use(inviteManagement(invites, residents, chatStates));
   bot.chatType("private").use(renameFlow(residents, chatStates));
   bot.chatType("private").use(shopMode(residents, scannerUrl));
+  bot.chatType("private").use(shoppingListFlow(commonItems));
   bot.chatType("private").use(commonItemsFlow(commonItems, residents, apartmentGroup, chatStates, log));
 
   bot.catch((error) => log(`Error while handling update ${error.ctx.update.update_id}: ${String(error.error)}`));

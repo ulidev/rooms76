@@ -35,6 +35,31 @@ export function formatInstant(timeZone: string, instant: Date): string {
   return `${formatDate(dateIn(timeZone, instant))}, ${time}`;
 }
 
+/** The instant a calendar date starts in the given IANA time zone. */
+export function startOfDay(timeZone: string, date: CalendarDate): Date {
+  const midnightUtc = Date.parse(`${date}T00:00:00Z`);
+  // The zone's offset at UTC midnight, corrected once more in case it differs at local midnight.
+  const guess = midnightUtc - offsetAt(timeZone, midnightUtc);
+  return new Date(midnightUtc - offsetAt(timeZone, guess));
+}
+
+/** How far ahead of UTC the time zone's clocks are at an instant, in milliseconds. */
+function offsetAt(timeZone: string, instant: number): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(instant);
+  const part = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((p) => p.type === type)!.value);
+  const wallClock = Date.UTC(part("year"), part("month") - 1, part("day"), part("hour"), part("minute"), part("second"));
+  return wallClock - (instant - (instant % 1000));
+}
+
 /** The calendar date this many days after (or, when negative, before) the given one. */
 export function addDays(date: CalendarDate, days: number): CalendarDate {
   const instant = new Date(`${date}T00:00:00Z`);
