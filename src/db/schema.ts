@@ -120,3 +120,16 @@ export const purchases = sqliteTable("purchases", {
   /** The Admin who voided it. */
   voidedBy: integer("voided_by").references(() => persons.id),
 });
+
+/** Settings of the Apartment as a whole. It has exactly one row, with id 1, once anything is set. */
+export const apartmentSettings = sqliteTable(
+  "apartment_settings",
+  {
+    id: integer("id").primaryKey(),
+    /** The chat id of the linked Apartment Group. Null while no group is linked. */
+    apartmentGroupChatId: integer("apartment_group_chat_id"),
+    /** The Apartment Group's title, as last seen. */
+    apartmentGroupTitle: text("apartment_group_title"),
+  },
+  (table) => [check("single_row", sql`${table.id} = 1`)],
+);

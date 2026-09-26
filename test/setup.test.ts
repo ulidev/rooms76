@@ -167,14 +167,16 @@ test("after setup, linking the Apartment Group and creating Invites are offered 
   });
 });
 
-test("linking the Apartment Group, which doesn't exist yet, says so", async () => {
+test("the optional Link the Apartment Group step explains how to link it", async () => {
   bot = await startTestBot();
   await confirmRooms("Room 1");
   await bot.tap(operator, "Room 1");
 
   await bot.tap(operator, "👥 Link the Apartment Group");
 
-  expect(bot.toastsTo(operator.id)).toEqual(["Linking the Apartment Group is coming soon."]);
+  expect(bot.lastMessageTo(operator.id).text).toMatch(
+    /^👥 No Apartment Group is linked yet\. To link it, add me to the group: open it, tap Add members/,
+  );
 });
 
 test("the optional Create an Invite step starts creating an Invite", async () => {

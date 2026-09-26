@@ -3,6 +3,7 @@
 import { Composer, InlineKeyboard, type Context, type MiddlewareFn } from "grammy";
 import type { ChatState, ChatStates } from "./chat-states.ts";
 import { formatDate } from "./clock.ts";
+import { HOW_TO_LINK } from "./apartment-group-flow.ts";
 import { NEW_INVITE } from "./invites-flow.ts";
 import { roomNameProblem, type Setup } from "./setup.ts";
 import { SHOP_MODE_HINT, shopKeyboard } from "./shop-mode.ts";
@@ -139,7 +140,7 @@ export function guidedSetup(setup: Setup, chatStates: ChatStates, scannerUrl: st
         "• Create Invites, so the other Residents can join their Rooms.",
       {
         reply_markup: new InlineKeyboard()
-          .text("👥 Link the Apartment Group", "setup-optional:link")
+          .text("👥 Link the Apartment Group", HOW_TO_LINK)
           .row()
           .text("✉️ Create an Invite", NEW_INVITE)
           .row()
@@ -160,9 +161,6 @@ export function guidedSetup(setup: Setup, chatStates: ChatStates, scannerUrl: st
 /** The optional steps offered once setup is done. The Admin is a Resident by then. */
 export function optionalSetupSteps(): Composer<Context> {
   const composer = new Composer<Context>();
-  composer.callbackQuery("setup-optional:link", (ctx) =>
-    ctx.answerCallbackQuery("Linking the Apartment Group is coming soon."),
-  );
   composer.callbackQuery("setup-optional:skip", async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.editMessageText("Skipped. You can link the Apartment Group and create Invites later.");

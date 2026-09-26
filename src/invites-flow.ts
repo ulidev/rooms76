@@ -1,8 +1,10 @@
 // Invites in Telegram: Admins create, list and revoke them in their private chat,
 // and whoever opens an Invite link joins the Apartment.
 import { Composer, InlineKeyboard, type Context, type MiddlewareFn } from "grammy";
+import type { ApartmentGroup } from "./apartment-group.ts";
 import type { ChatStates } from "./chat-states.ts";
 import { addDays, formatDate, parseDate, type CalendarDate } from "./clock.ts";
+import { joinApartmentGroupText } from "./apartment-group-flow.ts";
 import type { Invite, Invites, OpenedInvite } from "./invites.ts";
 import type { Residents } from "./residents.ts";
 import { SHOP_MODE_HINT, shopKeyboard } from "./shop-mode.ts";
@@ -14,7 +16,12 @@ export const NEW_INVITE = "invite:new";
  * Opening an Invite link: Telegram sends `/start <token>`. Runs before the Resident
  * check, since whoever opens a pending Invite becomes a Resident.
  */
-export function joinByInvite(invites: Invites, scannerUrl: string | null): MiddlewareFn<Context> {
+export function joinByInvite(
+  invites: Invites,
+  apartmentGroup: ApartmentGroup,
+  scannerUrl: string | null,
+  log: (line: string) => void,
+): MiddlewareFn<Context> {
   return async (ctx, next) => {
     const token = ctx.message?.text?.match(/^\/start(?:@\w+)?\s+(\S+)/)?.[1];
     if (token === undefined || !ctx.from) return next();
@@ -29,6 +36,8 @@ export function joinByInvite(invites: Invites, scannerUrl: string | null): Middl
         `I'll call you ${opened.name}. To change your name, send /name.\n\n${SHOP_MODE_HINT}`,
       { reply_markup: shopKeyboard(scannerUrl) },
     );
+    const joinGroup = await joinApartmentGroupText(ctx.api, apartmentGroup, opened.name, log);
+    if (joinGroup) await ctx.reply(joinGroup, { link_preview_options: { is_disabled: true } });
   };
 }
 

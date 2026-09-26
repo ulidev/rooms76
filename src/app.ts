@@ -1,6 +1,7 @@
 // Wires configuration, database and bot together. `main.ts` runs this against the
 // real world; the tests run it in process with fakes at the external boundaries.
 import type { Api, Bot } from "grammy";
+import { createApartmentGroup } from "./apartment-group.ts";
 import { createBot } from "./bot.ts";
 import { createChatStates } from "./chat-states.ts";
 import { createCommonItems } from "./common-items.ts";
@@ -45,6 +46,7 @@ export async function startApp(options: StartOptions): Promise<App> {
       setup,
       invites: createInvites(database.db, clock, config.apartmentTimeZone, residents),
       commonItems: createCommonItems(database.db, clock, config.apartmentTimeZone, residents),
+      apartmentGroup: createApartmentGroup(database.db),
       chatStates: createChatStates(database.db),
       scannerUrl: config.scannerUrl,
       log,

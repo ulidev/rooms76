@@ -40,6 +40,12 @@ export interface TelegramUser {
   username?: string;
 }
 
+/** A Telegram group chat. Group ids are negative. */
+export interface TelegramGroup {
+  id: number;
+  title: string;
+}
+
 export interface ApiCall {
   method: string;
   payload: Record<string, unknown>;
@@ -76,6 +82,25 @@ export interface TestBot {
   /** Moves the fake clock to this instant. */
   setNow(now: Date): void;
   sendPrivateMessage(from: TelegramUser, text: string): Promise<void>;
+  /**
+   * Someone adds the bot to a group: as a plain member, or as a group admin allowed to invite
+   * users. With `mayPost: false` the group doesn't let the bot send messages.
+   */
+  addBotToGroup(by: TelegramUser, group: TelegramGroup, options?: { asGroupAdmin?: boolean; mayPost?: boolean }): Promise<void>;
+  /** Someone removes the bot from a group. */
+  removeBotFromGroup(by: TelegramUser, group: TelegramGroup): Promise<void>;
+  /** Whether the bot is a member of this group now. */
+  isInGroup(groupId: number): boolean;
+  sendGroupMessage(from: TelegramUser, group: TelegramGroup, text: string): Promise<void>;
+  /** A group admin who stays anonymous sends a message: Telegram doesn't say who. */
+  sendAnonymousGroupMessage(group: TelegramGroup, text: string): Promise<void>;
+  /** Someone renames a group. */
+  renameGroup(by: TelegramUser, group: TelegramGroup, title: string): Promise<void>;
+  /**
+   * Telegram upgrades a group to a supergroup, which gets a new chat id. With `botAddedFirstBy`,
+   * Telegram first reports the bot as added to the supergroup by that user, then announces the upgrade.
+   */
+  upgradeToSupergroup(group: TelegramGroup, supergroupId: number, options?: { botAddedFirstBy?: TelegramUser }): Promise<void>;
   /** Taps the inline button with this text on the newest message in the user's private chat that has it. */
   tap(from: TelegramUser, buttonText: string): Promise<void>;
   close(): void;
@@ -99,6 +124,11 @@ export async function startTestBot(options: TestBotOptions = {}): Promise<TestBo
   const replyKeyboards = new Map<number, string[][]>();
   const callbackQueryUsers = new Map<string, number>();
   const toasts: { userId: number; text: string }[] = [];
+  /** The groups the bot is in, and what it may do there. */
+  const groups = new Map<number, { canInviteUsers: boolean; mayPost: boolean }>();
+  /** Groups upgraded to supergroups: the old chat id, and the new one. */
+  const upgradedGroups = new Map<number, number>();
+  let nextInviteLink = 1;
   let nextUpdateId = 1;
   let nextMessageId = 1;
   let now = options.now ?? new Date("2026-09-25T10:00:00Z");
@@ -117,6 +147,17 @@ export async function startTestBot(options: TestBotOptions = {}): Promise<TestBo
       api.config.use(async (_prev, method, payload) => {
         const recorded = { ...payload } as Record<string, unknown>;
         calls.push({ method, payload: recorded });
+        const upgradedTo = upgradedGroups.get(recorded.chat_id as number);
+        if (upgradedTo !== undefined) {
+          return {
+            ok: false,
+            error_code: 400,
+            description: "Bad Request: group chat was upgraded to a supergroup chat",
+            parameters: { migrate_to_chat_id: upgradedTo },
+          } as never;
+        }
+        const problem = fakeProblem(method, recorded);
+        if (problem) return { ok: false, error_code: 400, description: `Bad Request: ${problem}` } as never;
         return { ok: true, result: fakeResult(method, recorded) } as never;
       });
     },
@@ -127,8 +168,32 @@ export async function startTestBot(options: TestBotOptions = {}): Promise<TestBo
     return chats.get(chatId)!;
   }
 
+  /** Why Telegram would refuse this call, or null when it would accept it. */
+  function fakeProblem(method: string, payload: Record<string, unknown>): string | null {
+    const chatId = payload.chat_id;
+    if (typeof chatId !== "number" || chatId >= 0) return null;
+    const membership = groups.get(chatId);
+    if (!membership) return "bot is not a member of the group chat";
+    if (method === "sendMessage" && !membership.mayPost) return "not enough rights to send text messages to the chat";
+    if (method === "createChatInviteLink" && !membership.canInviteUsers) {
+      return "not enough rights to manage chat invite links";
+    }
+    return null;
+  }
+
   function fakeResult(method: string, payload: Record<string, unknown>): unknown {
     if (method === "getMe") return TEST_BOT_INFO;
+    if (method === "leaveChat") groups.delete(payload.chat_id as number);
+    if (method === "createChatInviteLink") {
+      return {
+        invite_link: `https://t.me/+fakeInvite${nextInviteLink++}`,
+        creator: TEST_BOT_INFO,
+        creates_join_request: false,
+        is_primary: false,
+        is_revoked: false,
+        ...payload,
+      };
+    }
     if (method === "sendMessage") {
       const chatId = payload.chat_id as number;
       const message = { id: nextMessageId++, text: String(payload.text), inlineKeyboard: inlineKeyboardOf(payload) };
@@ -184,6 +249,66 @@ export async function startTestBot(options: TestBotOptions = {}): Promise<TestBo
     await app.bot.handleUpdate({ update_id: nextUpdateId++, ...update });
   }
 
+  /** Supergroup chat ids start with -100, e.g. -1004001 here. */
+  /** A text message, with the command marked up the way Telegram does. */
+  function textContent(text: string) {
+    const isCommand = text.startsWith("/");
+    const commandLength = isCommand ? text.split(" ")[0]!.length : 0;
+    return { text, ...(isCommand ? { entities: [{ type: "bot_command", offset: 0, length: commandLength }] } : {}) };
+  }
+
+  const groupChat = (group: TelegramGroup) =>
+    ({ id: group.id, type: String(group.id).startsWith("-100") ? "supergroup" : "group", title: group.title }) as const;
+
+  /** Telegram's stand-in sender for group admins who stay anonymous. */
+  const GROUP_ANONYMOUS_BOT = { id: 1087968824, first_name: "Group", username: "GroupAnonymousBot" };
+
+  /** A service or text message in a group, as Telegram delivers it. */
+  function groupMessage(from: TelegramUser, group: TelegramGroup, content: Record<string, unknown>) {
+    return handle({
+      message: {
+        message_id: nextMessageId++,
+        date: unixTime(),
+        chat: groupChat(group),
+        from: { ...from, is_bot: false },
+        ...content,
+      } as never,
+    });
+  }
+
+  type BotStatus = "member" | "administrator" | "left";
+
+  function botMembershipChange(by: TelegramUser, group: TelegramGroup, before: BotStatus, after: BotStatus) {
+    const status = (name: BotStatus) =>
+      name === "administrator"
+        ? {
+            status: "administrator",
+            user: TEST_BOT_INFO,
+            can_be_edited: false,
+            is_anonymous: false,
+            can_manage_chat: true,
+            can_delete_messages: false,
+            can_manage_video_chats: false,
+            can_restrict_members: false,
+            can_promote_members: false,
+            can_change_info: false,
+            can_invite_users: true,
+            can_post_stories: false,
+            can_edit_stories: false,
+            can_delete_stories: false,
+          }
+        : { status: name, user: TEST_BOT_INFO };
+    return handle({
+      my_chat_member: {
+        chat: groupChat(group),
+        from: { ...by, is_bot: false },
+        date: unixTime(),
+        old_chat_member: status(before),
+        new_chat_member: status(after),
+      } as never,
+    });
+  }
+
   return {
     calls,
     logs,
@@ -235,6 +360,33 @@ export async function startTestBot(options: TestBotOptions = {}): Promise<TestBo
           },
         },
       });
+    },
+    addBotToGroup: async (by, group, { asGroupAdmin = false, mayPost = true } = {}) => {
+      groups.set(group.id, { canInviteUsers: asGroupAdmin, mayPost });
+      // Telegram announces the new member in the group, and tells the bot its own status changed.
+      // The two updates may come in either order; the announcement comes first here.
+      await groupMessage(by, group, { new_chat_members: [{ ...TEST_BOT_INFO }] });
+      if (groups.has(group.id)) await botMembershipChange(by, group, "left", asGroupAdmin ? "administrator" : "member");
+    },
+    removeBotFromGroup: async (by, group) => {
+      const wasAdmin = groups.get(group.id)?.canInviteUsers ?? false;
+      groups.delete(group.id);
+      await botMembershipChange(by, group, wasAdmin ? "administrator" : "member", "left");
+    },
+    isInGroup: (groupId) => groups.has(groupId),
+    sendGroupMessage: (from, group, text) => groupMessage(from, group, textContent(text)),
+    sendAnonymousGroupMessage: (group, text) =>
+      groupMessage(GROUP_ANONYMOUS_BOT, group, { ...textContent(text), sender_chat: groupChat(group) }),
+    renameGroup: (by, group, title) => groupMessage(by, { ...group, title }, { new_chat_title: title }),
+    upgradeToSupergroup: async (group, supergroupId, { botAddedFirstBy } = {}) => {
+      const membership = groups.get(group.id);
+      groups.delete(group.id);
+      if (membership) groups.set(supergroupId, membership);
+      upgradedGroups.set(group.id, supergroupId);
+      const supergroup = { id: supergroupId, title: group.title };
+      if (botAddedFirstBy) await botMembershipChange(botAddedFirstBy, supergroup, "left", "administrator");
+      await groupMessage(GROUP_ANONYMOUS_BOT, group, { migrate_to_chat_id: supergroupId });
+      await groupMessage(GROUP_ANONYMOUS_BOT, supergroup, { migrate_from_chat_id: group.id });
     },
     close: () => app.close(),
   };

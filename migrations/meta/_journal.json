@@ -36,6 +36,13 @@
       "when": 1790410252944,
       "tag": "0004_purchase_undo_void",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790411147010,
+      "tag": "0005_apartment_settings",
+      "breakpoints": true
     }
   ]
 }

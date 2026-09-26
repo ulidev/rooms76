@@ -1,8 +1,10 @@
 // The Telegram adapter: turns updates into service calls and results into messages.
 import { Bot } from "grammy";
+import type { ApartmentGroup } from "./apartment-group.ts";
 import type { ChatStates } from "./chat-states.ts";
 import type { CommonItems } from "./common-items.ts";
 import { commonItemsFlow } from "./common-items-flow.ts";
+import { apartmentGroupLinking, howToLinkApartmentGroup } from "./apartment-group-flow.ts";
 import type { Invites } from "./invites.ts";
 import { inviteManagement, joinByInvite } from "./invites-flow.ts";
 import { ABOUT } from "./profile.ts";
@@ -17,14 +19,18 @@ export interface BotServices {
   setup: Setup;
   invites: Invites;
   commonItems: CommonItems;
+  apartmentGroup: ApartmentGroup;
   chatStates: ChatStates;
   /** Null hides the Scan button. */
   scannerUrl: string | null;
   log(line: string): void;
 }
 
-export function createBot(botToken: string, { residents, setup, invites, commonItems, chatStates, scannerUrl, log }: BotServices): Bot {
+export function createBot(botToken: string, { residents, setup, invites, commonItems, apartmentGroup, chatStates, scannerUrl, log }: BotServices): Bot {
   const bot = new Bot(botToken);
+
+  // Groups: the bot joins only the Apartment Group, linked by an Admin.
+  bot.use(apartmentGroupLinking(apartmentGroup, residents, log));
 
   // A command or a Shop mode button leaves a half-finished flow (a new name, an Invite's
   // move-in date) and does what it says. Guided setup keeps its draft: it steers back to it.
@@ -44,7 +50,7 @@ export function createBot(botToken: string, { residents, setup, invites, commonI
   bot.chatType("private").use(guidedSetup(setup, chatStates, scannerUrl));
 
   // Whoever opens a pending Invite link becomes a Resident.
-  bot.chatType("private").use(joinByInvite(invites, scannerUrl));
+  bot.chatType("private").use(joinByInvite(invites, apartmentGroup, scannerUrl, log));
 
   // Only Residents may use the bot. Everyone else gets a polite pointer to the Admins.
   bot.chatType("private").use(async (ctx, next) => {
@@ -61,6 +67,7 @@ export function createBot(botToken: string, { residents, setup, invites, commonI
   });
 
   bot.chatType("private").use(optionalSetupSteps());
+  bot.chatType("private").use(howToLinkApartmentGroup(apartmentGroup, residents));
   bot.chatType("private").use(inviteManagement(invites, residents, chatStates));
   bot.chatType("private").use(renameFlow(residents, chatStates));
   bot.chatType("private").use(shopMode(residents, scannerUrl));

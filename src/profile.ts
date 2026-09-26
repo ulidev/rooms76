@@ -23,6 +23,7 @@ export async function setUpProfile(api: Api): Promise<void> {
     { command: "start", description: "Open the bot" },
     { command: "name", description: "Change your name" },
     { command: "invites", description: "Create and revoke Invites (Admins)" },
+    { command: "link", description: "Link the Apartment Group (Admins)" },
     { command: "about", description: "About rooms76 and its data sources" },
   ]);
   await api.setMyDescription(DESCRIPTION);

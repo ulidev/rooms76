@@ -27,6 +27,7 @@ test("at startup the bot sets its commands, description and short description", 
       { command: "start", description: "Open the bot" },
       { command: "name", description: "Change your name" },
       { command: "invites", description: "Create and revoke Invites (Admins)" },
+      { command: "link", description: "Link the Apartment Group (Admins)" },
       { command: "about", description: "About rooms76 and its data sources" },
     ],
   });
