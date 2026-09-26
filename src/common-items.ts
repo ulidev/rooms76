@@ -1,15 +1,20 @@
 // The Common Items service: what the Apartment buys together, the Purchases of it
 // and whose Turn it is to buy it next.
-import { and, asc, eq, sql } from "drizzle-orm";
-import { dateIn, type Clock } from "./clock.ts";
+import { and, asc, desc, eq, isNull, sql, type SQL } from "drizzle-orm";
+import { dateIn, formatInstant, type Clock } from "./clock.ts";
 import type { Db } from "./db/database.ts";
 import { commonItems, persons, purchases, rooms, rotationCounts, stays } from "./db/schema.ts";
-import { isCurrentStay } from "./residents.ts";
+import { isCurrentStay, type Residents } from "./residents.ts";
 import { complete, reentryCount, turn, type Rotation } from "./rotation.ts";
 
 export interface CommonItem {
   id: number;
   name: string;
+}
+
+/** A Common Item mentioned in a text, archived or not. */
+export interface MentionedItem extends CommonItem {
+  archived: boolean;
 }
 
 /** A Room taking part in a Rotation, with the Residents living in it now. */
@@ -33,6 +38,24 @@ export interface RecordedPurchase {
   passedTo: RotationRoom | null;
 }
 
+/** A Purchase that still counts: neither undone nor voided. */
+export interface CountingPurchase {
+  id: number;
+  item: CommonItem;
+  buyerName: string;
+  /** The Room it was bought for. */
+  roomName: string;
+  /** When it was bought, in the Apartment time zone, e.g. “26 Sep 2026, 09:05”. */
+  purchasedAt: string;
+}
+
+/** What undoing or voiding a Purchase left behind. */
+export interface UncountedPurchase {
+  item: CommonItem;
+  /** Whose Turn it is now, or null when no Purchase of the Common Item counts any more. */
+  turn: RotationRoom | null;
+}
+
 export interface CommonItems {
   /** How many Residents take part in a new Common Item: everyone living in an Occupied Room. */
   headcount(): number;
@@ -44,10 +67,29 @@ export interface CommonItems {
    */
   add(name: string, roughGuessDays: number | null): CommonItem;
   /**
+   * Changes a Common Item's rough guess, given in days for the Residents taking part now;
+   * null drops it. Returns null when there's no such Common Item.
+   */
+  setRoughGuess(itemId: number, roughGuessDays: number | null): CommonItem | null;
+  /**
+   * Archives a Common Item: it leaves the lists and its Rotation, and nobody can record
+   * Purchases of it, but its Purchases and counts stay. Returns null when there's no such
+   * Common Item, or it's already archived.
+   */
+  archive(itemId: number): CommonItem | null;
+  /**
+   * Restores an archived Common Item as it was. Only Admins restore Common Items. Returns
+   * null when there's no such archived Common Item.
+   */
+  restore(adminTelegramId: number, itemId: number): CommonItem | null;
+  /** The Common Item with this id, or null when there's none or it's archived. */
+  find(itemId: number): CommonItem | null;
+  /**
    * The Common Item this text mentions, like “kitchen paper” in “2 rolls of kitchen paper”,
    * or null when it mentions none. Plurals match too; the longest name mentioned wins.
+   * Archived Common Items count too, so they can be told apart from unknown ones.
    */
-  mentionedIn(text: string): CommonItem | null;
+  mentionedIn(text: string): MentionedItem | null;
   /** Whose Turn it is to buy this Common Item, or null when nobody has bought it yet. */
   turnOf(itemId: number): RotationRoom | null;
   /**
@@ -55,7 +97,26 @@ export interface CommonItems {
    * there's no such Common Item.
    */
   recordPurchase(telegramId: number, itemId: number): RecordedPurchase | null;
+  /** This Resident's last Purchase of the Common Item that still counts, or null when they have none. */
+  lastPurchaseBy(telegramId: number, itemId: number): CountingPurchase | null;
+  /**
+   * Undoes a Purchase, so it no longer counts. Only the buyer undoes a Purchase, and only
+   * their last one of that Common Item: returns null when it isn't that any more.
+   */
+  undoPurchase(telegramId: number, purchaseId: number): UncountedPurchase | null;
+  /** The last few Purchases of the Common Item that still count, newest first. */
+  recentPurchases(itemId: number): CountingPurchase[];
+  /** The Purchase with this id, or null when it no longer counts. */
+  countingPurchase(purchaseId: number): CountingPurchase | null;
+  /**
+   * Voids anyone's Purchase, so it no longer counts. Only Admins void Purchases. Returns
+   * null when it no longer counted anyway.
+   */
+  voidPurchase(adminTelegramId: number, purchaseId: number): UncountedPurchase | null;
 }
+
+/** How many of the latest Purchases an Admin picks from to void one. */
+const PURCHASES_TO_VOID_FROM = 5;
 
 export const MAX_COMMON_ITEM_NAME_LENGTH = 64;
 
@@ -65,7 +126,12 @@ export function commonItemName(text: string): string {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
-export function createCommonItems(db: Db, clock: Clock, apartmentTimeZone: string): CommonItems {
+export function createCommonItems(
+  db: Db,
+  clock: Clock,
+  apartmentTimeZone: string,
+  residents: Residents,
+): CommonItems {
   const today = () => dateIn(apartmentTimeZone, clock.now());
 
   const itemWithId = (tx: Db, itemId: number) =>
@@ -113,6 +179,81 @@ export function createCommonItems(db: Db, clock: Clock, apartmentTimeZone: strin
     return { order, start: item.rotationStartRoomId, counts };
   }
 
+  /**
+   * Stops a Purchase counting, and says whose Turn it is now. Its Room's count goes back
+   * down. The Rotation Start is the Room of the first Purchase that still counts; with
+   * none left, the Rotation starts over.
+   */
+  function uncount(tx: Db, purchase: { id: number; commonItemId: number; roomId: number }): UncountedPurchase {
+    tx.update(rotationCounts)
+      .set({ count: sql`max(${rotationCounts.count} - 1, 0)` })
+      .where(and(eq(rotationCounts.commonItemId, purchase.commonItemId), eq(rotationCounts.roomId, purchase.roomId)))
+      .run();
+    const first = tx
+      .select({ roomId: purchases.roomId })
+      .from(purchases)
+      .where(and(eq(purchases.commonItemId, purchase.commonItemId), stillCounts()))
+      .orderBy(asc(purchases.purchasedAt), asc(purchases.id))
+      .get();
+    if (!first) tx.delete(rotationCounts).where(eq(rotationCounts.commonItemId, purchase.commonItemId)).run();
+    tx.update(commonItems)
+      .set({ rotationStartRoomId: first?.roomId ?? null })
+      .where(eq(commonItems.id, purchase.commonItemId))
+      .run();
+    const item = itemWithId(tx, purchase.commonItemId)!;
+    return { item: { id: item.id, name: item.name }, turn: currentTurn(tx, item) };
+  }
+
+  /** Whose Turn it is to buy this Common Item, or null when nobody has bought it yet. */
+  function currentTurn(tx: Db, item: { id: number; rotationStartRoomId: number | null }): RotationRoom | null {
+    const holder = turn(rotationOf(tx, item));
+    return holder === null ? null : occupiedRooms(tx).get(holder)!;
+  }
+
+  /** The Purchases that still count and meet this condition, newest first, of Common Items not archived. */
+  function countingPurchases(tx: Db, condition: SQL, limit: number): CountingPurchase[] {
+    return tx
+      .select({
+        id: purchases.id,
+        itemId: commonItems.id,
+        itemName: commonItems.name,
+        buyerName: persons.name,
+        roomName: rooms.name,
+        purchasedAt: purchases.purchasedAt,
+      })
+      .from(purchases)
+      .innerJoin(persons, eq(persons.id, purchases.personId))
+      .innerJoin(rooms, eq(rooms.id, purchases.roomId))
+      .innerJoin(commonItems, eq(commonItems.id, purchases.commonItemId))
+      .where(and(condition, stillCounts(), eq(commonItems.archived, false)))
+      .orderBy(desc(purchases.purchasedAt), desc(purchases.id))
+      .limit(limit)
+      .all()
+      .map((purchase) => ({
+        id: purchase.id,
+        item: { id: purchase.itemId, name: purchase.itemName },
+        buyerName: purchase.buyerName,
+        roomName: purchase.roomName,
+        purchasedAt: formatInstant(apartmentTimeZone, purchase.purchasedAt),
+      }));
+  }
+
+  /** This Resident's last Purchase of the Common Item that still counts. */
+  function lastPurchase(tx: Db, telegramId: number, itemId: number): CountingPurchase | null {
+    return countingPurchases(tx, and(eq(persons.telegramId, telegramId), eq(purchases.commonItemId, itemId))!, 1)[0] ?? null;
+  }
+
+  /** Archives or restores a Common Item. Returns null when there's none that isn't that already. */
+  function setArchived(itemId: number, archived: boolean): CommonItem | null {
+    const item = db
+      .update(commonItems)
+      .set({ archived })
+      .where(and(eq(commonItems.id, itemId), eq(commonItems.archived, !archived)))
+      .returning({ id: commonItems.id, name: commonItems.name })
+      .get();
+    return item ?? null;
+  }
+
   const items: CommonItems = {
     headcount() {
       return [...occupiedRooms(db).values()].reduce((sum, room) => sum + room.residents.length, 0);
@@ -124,10 +265,13 @@ export function createCommonItems(db: Db, clock: Clock, apartmentTimeZone: strin
         return `Common Item names have at most ${MAX_COMMON_ITEM_NAME_LENGTH} characters.`;
       }
       const taken = db
-        .select({ name: commonItems.name })
+        .select({ name: commonItems.name, archived: commonItems.archived })
         .from(commonItems)
         .where(sql`lower(${commonItems.name}) = ${name.toLowerCase()}`)
         .get();
+      if (taken?.archived) {
+        return `There's already a Common Item called ${taken.name}, but it's archived: an Admin can restore it.`;
+      }
       if (taken) return `There's already a Common Item called ${taken.name}.`;
       return null;
     },
@@ -143,11 +287,35 @@ export function createCommonItems(db: Db, clock: Clock, apartmentTimeZone: strin
         .get();
     },
 
+    find(itemId) {
+      const item = itemWithId(db, itemId);
+      return item ? { id: item.id, name: item.name } : null;
+    },
+
+    setRoughGuess(itemId, roughGuessDays) {
+      const roughGuess = roughGuessDays === null ? null : roughGuessDays * items.headcount();
+      const item = db
+        .update(commonItems)
+        .set({ roughGuess })
+        .where(and(eq(commonItems.id, itemId), eq(commonItems.archived, false)))
+        .returning({ id: commonItems.id, name: commonItems.name })
+        .get();
+      return item ?? null;
+    },
+
+    archive(itemId) {
+      return setArchived(itemId, true);
+    },
+
+    restore(adminTelegramId, itemId) {
+      if (!residents.current(adminTelegramId)?.isAdmin) throw new Error("Only Admins restore Common Items");
+      return setArchived(itemId, false);
+    },
+
     mentionedIn(text) {
       const mentioned = db
-        .select({ id: commonItems.id, name: commonItems.name })
+        .select({ id: commonItems.id, name: commonItems.name, archived: commonItems.archived })
         .from(commonItems)
-        .where(eq(commonItems.archived, false))
         .all()
         .filter((item) => mentions(text, item.name));
       return mentioned.sort((a, b) => b.name.length - a.name.length)[0] ?? null;
@@ -155,9 +323,7 @@ export function createCommonItems(db: Db, clock: Clock, apartmentTimeZone: strin
 
     turnOf(itemId) {
       const item = itemWithId(db, itemId);
-      if (!item) return null;
-      const holder = turn(rotationOf(db, item));
-      return holder === null ? null : occupiedRooms(db).get(holder)!;
+      return item ? currentTurn(db, item) : null;
     },
 
     recordPurchase(telegramId, itemId) {
@@ -199,8 +365,51 @@ export function createCommonItems(db: Db, clock: Clock, apartmentTimeZone: strin
         };
       });
     },
+
+    lastPurchaseBy(telegramId, itemId) {
+      return lastPurchase(db, telegramId, itemId);
+    },
+
+    recentPurchases(itemId) {
+      return countingPurchases(db, eq(purchases.commonItemId, itemId), PURCHASES_TO_VOID_FROM);
+    },
+
+    countingPurchase(purchaseId) {
+      return countingPurchases(db, eq(purchases.id, purchaseId), 1)[0] ?? null;
+    },
+
+    undoPurchase(telegramId, purchaseId) {
+      return db.transaction((tx) => {
+        const purchase = tx.select().from(purchases).where(eq(purchases.id, purchaseId)).get();
+        const item = purchase && itemWithId(tx, purchase.commonItemId);
+        if (!purchase || !item || lastPurchase(tx, telegramId, item.id)?.id !== purchase.id) return null;
+        tx.update(purchases).set({ undoneAt: clock.now() }).where(eq(purchases.id, purchase.id)).run();
+        return uncount(tx, purchase);
+      });
+    },
+
+    voidPurchase(adminTelegramId, purchaseId) {
+      if (!residents.current(adminTelegramId)?.isAdmin) throw new Error("Only Admins void Purchases");
+      return db.transaction((tx) => {
+        const purchase = tx
+          .select()
+          .from(purchases)
+          .where(and(eq(purchases.id, purchaseId), stillCounts()))
+          .get();
+        const item = purchase && itemWithId(tx, purchase.commonItemId);
+        if (!purchase || !item) return null;
+        const admin = tx.select({ id: persons.id }).from(persons).where(eq(persons.telegramId, adminTelegramId)).get()!;
+        tx.update(purchases).set({ voidedAt: clock.now(), voidedBy: admin.id }).where(eq(purchases.id, purchase.id)).run();
+        return uncount(tx, purchase);
+      });
+    },
   };
   return items;
+}
+
+/** The SQL condition for Purchases that still count: neither undone nor voided. */
+function stillCounts() {
+  return and(isNull(purchases.undoneAt), isNull(purchases.voidedAt));
 }
 
 /** Whether the text mentions this name as whole words, in the singular or plural, ignoring case. */

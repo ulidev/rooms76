@@ -26,6 +26,8 @@ Send `/start` to your bot. As the Operator you become the first Admin, and the b
 
 **Common Items and Purchases:** any Resident adds a Common Item with `➕ Add item`, or by typing a name the bot doesn't know yet. Typing what happened, e.g. "bought kitchen paper", records a Purchase for your Room. Each Common Item has its own Rotation: the Turn goes to the Room with the fewest Purchases, ties broken by the Room Order counted from the Room that bought first. A Room that buys out of turn is skipped later, and the Residents of the Room whose Turn comes up hear it privately.
 
+**A Common Item's card:** typing a Common Item's name shows whose Turn it is. Its `⋯ More` button lets you undo your own last Purchase, change the rough guess, or archive the Common Item (it keeps its history; an Admin restores it by typing its name). Admins can also void anyone's Purchase there. Undone and voided Purchases no longer count.
+
 **Finding your Telegram user id:** if the bot tells you to ask an Admin for an Invite instead, `OPERATOR_TELEGRAM_ID` is wrong. The bot logs `/start from unknown user <id> (<name>)` with your real id.
 
 ## Development

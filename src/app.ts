@@ -44,7 +44,7 @@ export async function startApp(options: StartOptions): Promise<App> {
       residents,
       setup,
       invites: createInvites(database.db, clock, config.apartmentTimeZone, residents),
-      commonItems: createCommonItems(database.db, clock, config.apartmentTimeZone),
+      commonItems: createCommonItems(database.db, clock, config.apartmentTimeZone, residents),
       chatStates: createChatStates(database.db),
       scannerUrl: config.scannerUrl,
       log,

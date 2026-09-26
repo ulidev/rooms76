@@ -188,7 +188,7 @@ test("typing a Common Item's name shows whose Turn it is, with a button to recor
   expect(bot.lastMessageTo(lena.id)).toEqual({
     id: expect.any(Number),
     text: "Bin bags\nNo Turn yet: nobody has bought it, so anyone can.",
-    buttons: [["✅ I bought it"]],
+    buttons: [["✅ I bought it"], ["⋯ More"]],
   });
 
   await bot.tap(lena, "✅ I bought it");

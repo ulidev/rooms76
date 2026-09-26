@@ -113,4 +113,10 @@ export const purchases = sqliteTable("purchases", {
     .notNull()
     .references(() => persons.id),
   purchasedAt: integer("purchased_at", { mode: "timestamp_ms" }).notNull(),
+  /** When the buyer undid it. An undone Purchase no longer counts. */
+  undoneAt: integer("undone_at", { mode: "timestamp_ms" }),
+  /** When an Admin voided it. A voided Purchase no longer counts. */
+  voidedAt: integer("voided_at", { mode: "timestamp_ms" }),
+  /** The Admin who voided it. */
+  voidedBy: integer("voided_by").references(() => persons.id),
 });

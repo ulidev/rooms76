@@ -27,6 +27,14 @@ export function formatDate(date: CalendarDate): string {
   return `${day} ${MONTHS[month! - 1]} ${year}`;
 }
 
+/** An instant as people read it in the given IANA time zone, e.g. "26 Sep 2026, 09:05". */
+export function formatInstant(timeZone: string, instant: Date): string {
+  const time = new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(
+    instant,
+  );
+  return `${formatDate(dateIn(timeZone, instant))}, ${time}`;
+}
+
 /** The calendar date this many days after (or, when negative, before) the given one. */
 export function addDays(date: CalendarDate, days: number): CalendarDate {
   const instant = new Date(`${date}T00:00:00Z`);
