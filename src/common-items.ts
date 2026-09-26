@@ -365,6 +365,54 @@ export function createCommonItems(
       }));
   }
 
+  /** When each Purchase that still counts was made, by Common Item. */
+  function purchaseTimesByItem(tx: Db): Map<number, number[]> {
+    const times = new Map<number, number[]>();
+    const counting = tx
+      .select({ itemId: purchases.commonItemId, purchasedAt: purchases.purchasedAt })
+      .from(purchases)
+      .where(stillCounts())
+      .all();
+    for (const purchase of counting) {
+      if (!times.has(purchase.itemId)) times.set(purchase.itemId, []);
+      times.get(purchase.itemId)!.push(purchase.purchasedAt.getTime());
+    }
+    return times;
+  }
+
+  /** The Common Items not archived, with whose Turn it is and how pressing each is now, most pressing first. */
+  function assessedItems(tx: Db) {
+    const now = clock.now().getTime();
+    const headcountNow = items.headcount();
+    const spans = staySpans(tx);
+    const purchaseTimes = purchaseTimesByItem(tx);
+    return tx
+      .select({
+        id: commonItems.id,
+        name: commonItems.name,
+        roughGuess: commonItems.roughGuess,
+        rotationStartRoomId: commonItems.rotationStartRoomId,
+        runOutSince: runOuts.reportedAt,
+      })
+      .from(commonItems)
+      .leftJoin(runOuts, and(eq(runOuts.commonItemId, commonItems.id), isOpen()))
+      .where(eq(commonItems.archived, false))
+      .all()
+      .map((item) => ({
+        item,
+        turn: currentTurn(tx, item),
+        assessment: assess({
+          purchases: purchaseTimes.get(item.id) ?? [],
+          stays: spans,
+          roughGuess: item.roughGuess,
+          headcountNow,
+          runOutSince: item.runOutSince?.getTime() ?? null,
+          now,
+        }),
+      }))
+      .sort((a, b) => byUrgency(a.assessment, b.assessment));
+  }
+
   /** Archives or restores a Common Item. Returns null when there's none that isn't that already. */
   function setArchived(itemId: number, archived: boolean): CommonItem | null {
     const item = db
@@ -550,46 +598,8 @@ export function createCommonItems(
     },
 
     shoppingList(telegramId) {
-      const now = clock.now().getTime();
-      const headcountNow = items.headcount();
-      const spans = staySpans(db);
-      const purchaseTimes = new Map<number, number[]>();
-      for (const purchase of db
-        .select({ itemId: purchases.commonItemId, purchasedAt: purchases.purchasedAt })
-        .from(purchases)
-        .where(stillCounts())
-        .all()) {
-        if (!purchaseTimes.has(purchase.itemId)) purchaseTimes.set(purchase.itemId, []);
-        purchaseTimes.get(purchase.itemId)!.push(purchase.purchasedAt.getTime());
-      }
-      const assessed = db
-        .select({
-          id: commonItems.id,
-          name: commonItems.name,
-          roughGuess: commonItems.roughGuess,
-          rotationStartRoomId: commonItems.rotationStartRoomId,
-          runOutSince: runOuts.reportedAt,
-        })
-        .from(commonItems)
-        .leftJoin(runOuts, and(eq(runOuts.commonItemId, commonItems.id), isOpen()))
-        .where(eq(commonItems.archived, false))
-        .all()
-        .map((item) => ({
-          item,
-          turn: currentTurn(db, item),
-          assessment: assess({
-            purchases: purchaseTimes.get(item.id) ?? [],
-            stays: spans,
-            roughGuess: item.roughGuess,
-            headcountNow,
-            runOutSince: item.runOutSince?.getTime() ?? null,
-            now,
-          }),
-        }))
-        .sort((a, b) => byUrgency(a.assessment, b.assessment));
-
       const list: ShoppingList = { yourTurn: [], anyone: [], yourTurnLater: [] };
-      for (const { item, turn, assessment } of assessed) {
+      for (const { item, turn, assessment } of assessedItems(db)) {
         const line = {
           id: item.id,
           name: item.name,

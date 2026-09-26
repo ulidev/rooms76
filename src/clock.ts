@@ -2,6 +2,9 @@ export interface Clock {
   now(): Date;
 }
 
+/** The milliseconds in a day. */
+export const DAY = 24 * 60 * 60 * 1000;
+
 export const systemClock: Clock = { now: () => new Date() };
 
 /** A calendar date in the Apartment time zone, formatted YYYY-MM-DD. */

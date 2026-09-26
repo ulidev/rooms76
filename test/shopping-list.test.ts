@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "vitest";
+import { DAY } from "../src/clock.ts";
 import { OPERATOR_ID, startTestBot, type TelegramUser, type TestBot } from "./harness.ts";
 
 let bot: TestBot;
@@ -8,7 +9,6 @@ const lena = { id: OPERATOR_ID, first_name: "Lena" };
 const ana = { id: 2002, first_name: "Ana" };
 const tomas = { id: 2003, first_name: "Tomás" };
 
-const DAY = 24 * 60 * 60 * 1000;
 /** Day 0: when everyone moved in. */
 const DAY_0 = new Date("2026-09-25T10:00:00Z").getTime();
 

@@ -4,7 +4,7 @@
 // It's a single-use link that expires after 7 days and can be revoked while pending.
 import { randomBytes } from "node:crypto";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
-import { dateIn, type CalendarDate, type Clock } from "./clock.ts";
+import { dateIn, DAY, type CalendarDate, type Clock } from "./clock.ts";
 import type { Db } from "./db/database.ts";
 import { invites, persons, rooms, stays } from "./db/schema.ts";
 import type { Residents } from "./residents.ts";
@@ -77,7 +77,7 @@ export function createInvites(db: Db, clock: Clock, apartmentTimeZone: string, r
       if (!room) throw new Error(`There's no Room ${roomId} to invite to`);
 
       const admin = db.select({ id: persons.id }).from(persons).where(eq(persons.telegramId, adminTelegramId)).get()!;
-      const expiresAt = new Date(clock.now().getTime() + INVITE_LIFETIME_DAYS * 24 * 60 * 60 * 1000);
+      const expiresAt = new Date(clock.now().getTime() + INVITE_LIFETIME_DAYS * DAY);
       // 16 random bytes: unguessable, and within the 64 characters a `start` parameter may have.
       const token = randomBytes(16).toString("base64url");
       const { id } = db

@@ -1,8 +1,7 @@
 // The Urgency core: the pure rules for how long a Purchase of a Common Item lasts and how
 // pressing it is to buy it. Like the Rotation core, it does no I/O and has no clock; every
 // input is passed in. Instants are milliseconds since the epoch.
-
-const DAY = 24 * 60 * 60 * 1000;
+import { DAY } from "./clock.ts";
 
 /** How many of the latest intervals between Purchases are learned from. */
 const INTERVALS_LEARNED = 5;

@@ -1,8 +1,8 @@
 // Seam 2: the pure Urgency core. Instants are counted in days from day 0.
 import { expect, test } from "vitest";
+import { DAY } from "../src/clock.ts";
 import { assess, byUrgency, expectedDuration, type DurationHistory } from "../src/urgency.ts";
 
-const DAY = 24 * 60 * 60 * 1000;
 
 /** The instant this many days after day 0. */
 const day = (days: number) => days * DAY;
