@@ -12,6 +12,7 @@ import { setUpProfile } from "./profile.ts";
 import { createInvites } from "./invites.ts";
 import { createResidents } from "./residents.ts";
 import { createSetup } from "./setup.ts";
+import { createShoppingLists } from "./shopping-lists.ts";
 
 export interface AppDependencies {
   clock: Clock;
@@ -48,6 +49,7 @@ export async function startApp(options: StartOptions): Promise<App> {
       commonItems: createCommonItems(database.db, clock, config.apartmentTimeZone, residents),
       apartmentGroup: createApartmentGroup(database.db),
       chatStates: createChatStates(database.db),
+      shoppingLists: createShoppingLists(database.db, clock),
       scannerUrl: config.scannerUrl,
       log,
     });

@@ -91,14 +91,14 @@ test("the shopping list has the Resident's Turn, then what anyone may buy, then 
       "🛒 Shopping list",
       "",
       "Your Turn",
-      "• Oil · ran out",
-      "• Toilet paper · ran out",
-      "• Coffee · due soon",
-      "• Milk · due soon",
+      "☐ Oil · ran out",
+      "☐ Toilet paper · ran out",
+      "☐ Coffee · due soon",
+      "☐ Milk · due soon",
       "",
       "Anyone",
-      "• Tea · ran out",
-      "• Kitchen paper · ran out",
+      "☐ Tea · ran out",
+      "☐ Kitchen paper · ran out",
       "",
       "Your Turn later: Dish soap, Sponges (no estimate yet)",
     ].join("\n"),
@@ -106,7 +106,7 @@ test("the shopping list has the Resident's Turn, then what anyone may buy, then 
 
   // It's not Lena's Turn for anything: she sees only what anyone may buy.
   expect(await shoppingListOf(lena)).toBe(
-    ["🛒 Shopping list", "", "Anyone", "• Tea · ran out", "• Kitchen paper · ran out"].join("\n"),
+    ["🛒 Shopping list", "", "Anyone", "☐ Tea · ran out", "☐ Kitchen paper · ran out"].join("\n"),
   );
 });
 
@@ -119,7 +119,7 @@ test("a Common Item becomes Due soon once 75% of its Expected Duration has passe
   expect(await shoppingListOf(ana)).toBe("🛒 Shopping list\n\nYour Turn later: Coffee");
 
   onDay(5.25);
-  expect(await shoppingListOf(ana)).toBe("🛒 Shopping list\n\nYour Turn\n• Coffee · due soon");
+  expect(await shoppingListOf(ana)).toBe("🛒 Shopping list\n\nYour Turn\n☐ Coffee · due soon");
 });
 
 test("with nothing to buy, the shopping list says so", async () => {
@@ -175,5 +175,5 @@ test("a Common Item without an estimate stays Not yet until it runs out", async 
   expect(await shoppingListOf(ana)).toBe("🛒 Shopping list\n\nYour Turn later: Sponges (no estimate yet)");
 
   await bot.sendPrivateMessage(tomas, "sponges ran out");
-  expect(await shoppingListOf(ana)).toBe("🛒 Shopping list\n\nYour Turn\n• Sponges · ran out");
+  expect(await shoppingListOf(ana)).toBe("🛒 Shopping list\n\nYour Turn\n☐ Sponges · ran out");
 });

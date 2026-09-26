@@ -8,12 +8,14 @@ import { apartmentGroupLinking, howToLinkApartmentGroup } from "./apartment-grou
 import type { Invites } from "./invites.ts";
 import { inviteManagement, joinByInvite } from "./invites-flow.ts";
 import { ABOUT } from "./profile.ts";
+import { createPurchaseReplies } from "./purchase-replies.ts";
 import type { Residents } from "./residents.ts";
 import { renameFlow } from "./name-flow.ts";
 import { guidedSetup, optionalSetupSteps } from "./setup-flow.ts";
 import type { Setup } from "./setup.ts";
 import { isShopButton, shopMode } from "./shop-mode.ts";
 import { shoppingListFlow } from "./shopping-list-flow.ts";
+import type { ShoppingLists } from "./shopping-lists.ts";
 
 export interface BotServices {
   residents: Residents;
@@ -22,13 +24,15 @@ export interface BotServices {
   commonItems: CommonItems;
   apartmentGroup: ApartmentGroup;
   chatStates: ChatStates;
+  shoppingLists: ShoppingLists;
   /** Null hides the Scan button. */
   scannerUrl: string | null;
   log(line: string): void;
 }
 
-export function createBot(botToken: string, { residents, setup, invites, commonItems, apartmentGroup, chatStates, scannerUrl, log }: BotServices): Bot {
+export function createBot(botToken: string, { residents, setup, invites, commonItems, apartmentGroup, chatStates, shoppingLists, scannerUrl, log }: BotServices): Bot {
   const bot = new Bot(botToken);
+  const purchases = createPurchaseReplies(commonItems, residents, apartmentGroup, log);
 
   // Groups: the bot joins only the Apartment Group, linked by an Admin.
   bot.use(apartmentGroupLinking(apartmentGroup, residents, log));
@@ -72,8 +76,8 @@ export function createBot(botToken: string, { residents, setup, invites, commonI
   bot.chatType("private").use(inviteManagement(invites, residents, chatStates));
   bot.chatType("private").use(renameFlow(residents, chatStates));
   bot.chatType("private").use(shopMode(residents, scannerUrl));
-  bot.chatType("private").use(shoppingListFlow(commonItems));
-  bot.chatType("private").use(commonItemsFlow(commonItems, residents, apartmentGroup, chatStates, log));
+  bot.chatType("private").use(shoppingListFlow(commonItems, purchases, shoppingLists));
+  bot.chatType("private").use(commonItemsFlow(commonItems, purchases, residents, apartmentGroup, chatStates, log));
 
   bot.catch((error) => log(`Error while handling update ${error.ctx.update.update_id}: ${String(error.error)}`));
 

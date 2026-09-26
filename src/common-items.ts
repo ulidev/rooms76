@@ -27,6 +27,8 @@ export interface RotationRoom {
 
 /** What recording a Purchase did to the Common Item's Rotation. */
 export interface RecordedPurchase {
+  /** The Purchase's id, to undo it by. */
+  id: number;
   item: CommonItem;
   buyer: { name: string; room: RotationRoom };
   /** True for the Common Item's first Purchase, which made the buyer's Room the Rotation Start. */
@@ -91,6 +93,12 @@ export interface ShoppingListLine extends CommonItem {
   noEstimate: boolean;
 }
 
+/** A Common Item in neither Your Turn nor Anyone, and whose Turn it is to buy it. */
+export interface OffListItem extends CommonItem {
+  /** Null when nobody has bought it yet. */
+  turn: RotationRoom | null;
+}
+
 /** What a Resident should buy, each section most pressing first. */
 export interface ShoppingList {
   /** Run Out or Due soon, and their Room's Turn. */
@@ -99,6 +107,8 @@ export interface ShoppingList {
   anyone: ShoppingListLine[];
   /** Not yet, and their Room's Turn. */
   yourTurnLater: ShoppingListLine[];
+  /** Every Common Item in neither Your Turn nor Anyone, by name, so any of them can be bought too. */
+  offList: OffListItem[];
 }
 
 export interface CommonItems {
@@ -538,6 +548,7 @@ export function createCommonItems(
         const occupied = occupiedRooms(tx);
         const roomWithId = (roomId: number | null) => (roomId === null ? null : occupied.get(roomId)!);
         return {
+          id: recorded.id,
           item: { id: item.id, name: item.name },
           buyer: { name: buyer.name, room: roomWithId(buyer.roomId)! },
           startedRotation: purchase.startedRotation,
@@ -603,7 +614,7 @@ export function createCommonItems(
     shoppingList(telegramId) {
       const assessed = assessedItems(db);
       if (assessed.length === 0) return null;
-      const list: ShoppingList = { yourTurn: [], anyone: [], yourTurnLater: [] };
+      const list: ShoppingList = { yourTurn: [], anyone: [], yourTurnLater: [], offList: [] };
       for (const { item, turn, assessment } of assessed) {
         const line = {
           id: item.id,
@@ -611,11 +622,14 @@ export function createCommonItems(
           urgency: assessment.urgency,
           noEstimate: assessment.expectedDuration === null,
         };
-        const yours = turn?.residents.some((resident) => resident.telegramId === telegramId) ?? false;
-        if (yours && assessment.urgency === "not-yet") list.yourTurnLater.push(line);
-        else if (yours) list.yourTurn.push(line);
+        const yours = turn !== null && livesIn(turn, telegramId);
+        if (yours && assessment.urgency !== "not-yet") list.yourTurn.push(line);
         else if (turn === null && assessment.urgency === "run-out") list.anyone.push(line);
+        else list.offList.push({ id: item.id, name: item.name, turn });
+        // Your Turn later is a reminder, not a section to tick: its Common Items are off the list too.
+        if (yours && assessment.urgency === "not-yet") list.yourTurnLater.push(line);
       }
+      list.offList.sort((a, b) => a.name.localeCompare(b.name));
       return list;
     },
 
@@ -656,6 +670,11 @@ export function createCommonItems(
     },
   };
   return items;
+}
+
+/** Whether this Resident lives in the Room now. */
+export function livesIn(room: RotationRoom, telegramId: number): boolean {
+  return room.residents.some((resident) => resident.telegramId === telegramId);
 }
 
 /** The SQL condition for Purchases that still count: neither undone nor voided. */

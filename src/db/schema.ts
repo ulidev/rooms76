@@ -3,6 +3,7 @@
 import { sql } from "drizzle-orm";
 import { check, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { ChatState } from "../chat-states.ts";
+import type { OpenShoppingList } from "../shopping-lists.ts";
 
 export const rooms = sqliteTable("rooms", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -41,6 +42,15 @@ export const stays = sqliteTable(
 export const chatStates = sqliteTable("chat_states", {
   chatId: integer("chat_id").primaryKey(),
   state: text("state", { mode: "json" }).$type<ChatState>().notNull(),
+});
+
+/**
+ * The shopping list open in each private chat, as it was when opened, with what's ticked on it.
+ * It's kept apart from the chat's flow, so shopping survives other flows in between.
+ */
+export const shoppingLists = sqliteTable("shopping_lists", {
+  chatId: integer("chat_id").primaryKey(),
+  list: text("list", { mode: "json" }).$type<OpenShoppingList>().notNull(),
 });
 
 /**

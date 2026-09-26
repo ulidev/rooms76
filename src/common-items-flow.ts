@@ -7,15 +7,15 @@ import type { ApartmentGroup } from "./apartment-group.ts";
 import type { ChatState, ChatStates } from "./chat-states.ts";
 import {
   commonItemName,
+  livesIn,
   type CommonItem,
   type CommonItems,
-  type RecordedPurchase,
   type ReportedRunOut,
   type RotationRoom,
   type RunOut,
-  type UncountedPurchase,
 } from "./common-items.ts";
-import { notifyPurchase, notifyRunOutReported, notifyRunOutRetracted, notifyUncounted, roomLabel } from "./notifier.ts";
+import { notifyRunOutReported, notifyRunOutRetracted, notifyUncounted } from "./notifier.ts";
+import { turnLine, uncountedLines, type PurchaseReplies } from "./purchase-replies.ts";
 import type { Residents } from "./residents.ts";
 import { ADD_ITEM, SOMETHING_RAN_OUT } from "./shop-mode.ts";
 
@@ -35,6 +35,7 @@ const ROUGH_GUESSES: [label: string, days: number][] = [
 /** Common Items for Residents. Only Residents get this far. */
 export function commonItemsFlow(
   items: CommonItems,
+  purchases: PurchaseReplies,
   residents: Residents,
   apartmentGroup: ApartmentGroup,
   chatStates: ChatStates,
@@ -48,15 +49,6 @@ export function commonItemsFlow(
     const state = chatStates.get(ctx.chat!.id);
     if (state?.flow !== "new-item" || state.messageId !== ctx.callbackQuery?.message?.message_id) return undefined;
     return state;
-  };
-
-  /** Records a Purchase, answers the buyer and tells whoever's Turn it is now. */
-  const recordPurchase = async (ctx: Context, itemId: number, answer: (text: string) => Promise<unknown>) => {
-    const purchase = items.recordPurchase(ctx.from!.id, itemId);
-    if (!purchase) return false;
-    await answer(purchaseText(purchase));
-    await notifyPurchase(ctx.api, apartmentGroup, purchase, log);
-    return true;
   };
 
   /** Reports a Run Out, answers the reporter and tells the group and the Turn Room. */
@@ -158,7 +150,7 @@ export function commonItemsFlow(
       return;
     }
     if (item && bought !== undefined) {
-      await recordPurchase(ctx, item.id, (text) => ctx.reply(text));
+      await purchases.record(ctx, item.id, (text) => ctx.reply(text));
       return;
     }
     if (item) {
@@ -209,7 +201,7 @@ export function commonItemsFlow(
 
   // ✅ I bought it, under a Common Item or a Common Item just added.
   composer.callbackQuery(/^item:bought:(\d+)$/, async (ctx) => {
-    const recorded = await recordPurchase(ctx, Number(ctx.match[1]), async (text) => {
+    const recorded = await purchases.record(ctx, Number(ctx.match[1]), async (text) => {
       await ctx.answerCallbackQuery();
       await ctx.editMessageText(text);
     });
@@ -327,13 +319,11 @@ export function commonItemsFlow(
   });
 
   composer.callbackQuery(/^item:undo-yes:(\d+)$/, async (ctx) => {
-    const undone = items.undoPurchase(ctx.from.id, Number(ctx.match[1]));
-    if (!undone) return answerOutOfDate(ctx);
-    await ctx.answerCallbackQuery();
-    await ctx.editMessageText(
-      `↩️ Undone: your Purchase of ${undone.item.name} no longer counts.\n${uncountedLines(undone, ctx.from.id)}`,
-    );
-    await notifyUncounted(ctx.api, apartmentGroup, undone, `${residents.current(ctx.from.id)!.name} undid their Purchase`, log);
+    const undone = await purchases.undo(ctx, Number(ctx.match[1]), async (text) => {
+      await ctx.answerCallbackQuery();
+      await ctx.editMessageText(text);
+    });
+    if (!undone) await answerOutOfDate(ctx);
   });
 
   composer.callbackQuery(/^item:void-pick:(\d+)$/, async (ctx) => {
@@ -364,27 +354,6 @@ export function commonItemsFlow(
   return composer;
 }
 
-/** The reply to a Purchase, stating its effect on the Rotation. */
-function purchaseText({ item, buyer, startedRotation, outOfTurn, turn, clearedRunOut }: RecordedPurchase): string {
-  const lines = [`✅ Recorded: you bought ${item.name}.`];
-  if (clearedRunOut) lines.push("The Run Out is cleared.");
-  if (startedRotation) lines.push(`You're the first to buy it, so ${buyer.room.name} starts its Rotation.`);
-  if (outOfTurn) {
-    lines.push(
-      `That was out of turn: ${roomLabel(outOfTurn)} still holds the Turn, so ${buyer.room.name} will be skipped later.`,
-    );
-  } else if (turn) {
-    lines.push(`Next Turn: ${turn.id === buyer.room.id ? "your Room again" : roomLabel(turn)}.`);
-  }
-  return lines.join("\n");
-}
-
-/** What's left after undoing or voiding a Purchase: whether it's Run Out again, and whose Turn it is. */
-function uncountedLines(uncounted: UncountedPurchase, telegramId: number): string {
-  const turn = turnLine(uncounted.turn, telegramId);
-  return uncounted.reopenedRunOut ? `${uncounted.item.name} is Run Out again.\n${turn}` : turn;
-}
-
 /** The answer to reporting a Common Item that's already reported. */
 function alreadyReportedText(runOut: RunOut, telegramId: number): string {
   const by = runOut.reporter.telegramId === telegramId ? "you" : runOut.reporter.name;
@@ -394,7 +363,7 @@ function alreadyReportedText(runOut: RunOut, telegramId: number): string {
 /** The buttons under a Run Out just reported: buy it when it's the reporter's to buy, and retract it. */
 function reportedButtons({ runOut, turn }: ReportedRunOut, telegramId: number): InlineKeyboard {
   const buttons = new InlineKeyboard();
-  const theirsToBuy = turn === null || turn.residents.some((resident) => resident.telegramId === telegramId);
+  const theirsToBuy = turn === null || livesIn(turn, telegramId);
   if (theirsToBuy) buttons.text("✅ I bought it", `item:bought:${runOut.item.id}`).row();
   return buttons.add(retract(runOut));
 }
@@ -411,13 +380,6 @@ function retract(runOut: RunOut): InlineKeyboardButton {
 /** A Common Item and whose Turn it is to buy it. */
 function itemText(name: string, turn: RotationRoom | null, telegramId: number): string {
   return `${name}\n${turnLine(turn, telegramId)}`;
-}
-
-/** Whose Turn it is, as this Resident reads it. */
-function turnLine(turn: RotationRoom | null, telegramId: number): string {
-  if (turn === null) return "No Turn yet: nobody has bought it, so anyone can.";
-  const yours = turn.residents.some((resident) => resident.telegramId === telegramId);
-  return `Turn: ${yours ? "your Room" : roomLabel(turn)}.`;
 }
 
 /** The buttons under a Common Item's card. */
