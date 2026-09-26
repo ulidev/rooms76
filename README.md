@@ -24,6 +24,8 @@ Send `/start` to your bot. As the Operator you become the first Admin, and the b
 
 **Inviting the other Residents:** send `/invites` and create an Invite for their Room. You get a single-use link that expires after 7 days; whoever opens it becomes a Resident of that Room straight away. `/invites` also lists the pending Invites so you can revoke them.
 
+**Common Items and Purchases:** any Resident adds a Common Item with `➕ Add item`, or by typing a name the bot doesn't know yet. Typing what happened, e.g. "bought kitchen paper", records a Purchase for your Room. Each Common Item has its own Rotation: the Turn goes to the Room with the fewest Purchases, ties broken by the Room Order counted from the Room that bought first. A Room that buys out of turn is skipped later, and the Residents of the Room whose Turn comes up hear it privately.
+
 **Finding your Telegram user id:** if the bot tells you to ask an Admin for an Invite instead, `OPERATOR_TELEGRAM_ID` is wrong. The bot logs `/start from unknown user <id> (<name>)` with your real id.
 
 ## Development

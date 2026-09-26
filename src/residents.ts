@@ -1,6 +1,6 @@
 // The Residents service: who may use the bot.
-import { and, eq, gte, isNull, lte, or } from "drizzle-orm";
-import { dateIn, type Clock } from "./clock.ts";
+import { and, eq, gte, isNull, lte, or, type SQL } from "drizzle-orm";
+import { dateIn, type CalendarDate, type Clock } from "./clock.ts";
 import type { Db } from "./db/database.ts";
 import { persons, rooms, stays } from "./db/schema.ts";
 
@@ -30,6 +30,11 @@ export function nameProblem(name: string): string | null {
   return null;
 }
 
+/** The SQL condition for Stays that are current on this day (move-in and move-out days included). */
+export function isCurrentStay(today: CalendarDate): SQL {
+  return and(lte(stays.moveIn, today), or(isNull(stays.moveOut), gte(stays.moveOut, today)))!;
+}
+
 export function createResidents(db: Db, clock: Clock, apartmentTimeZone: string): Residents {
   return {
     current(telegramId) {
@@ -39,13 +44,7 @@ export function createResidents(db: Db, clock: Clock, apartmentTimeZone: string)
         .from(stays)
         .innerJoin(persons, eq(persons.id, stays.personId))
         .innerJoin(rooms, eq(rooms.id, stays.roomId))
-        .where(
-          and(
-            eq(persons.telegramId, telegramId),
-            lte(stays.moveIn, today),
-            or(isNull(stays.moveOut), gte(stays.moveOut, today)),
-          ),
-        )
+        .where(and(eq(persons.telegramId, telegramId), isCurrentStay(today)))
         .get();
       return resident ?? null;
     },

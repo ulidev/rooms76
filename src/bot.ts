@@ -1,6 +1,8 @@
 // The Telegram adapter: turns updates into service calls and results into messages.
 import { Bot } from "grammy";
 import type { ChatStates } from "./chat-states.ts";
+import type { CommonItems } from "./common-items.ts";
+import { commonItemsFlow } from "./common-items-flow.ts";
 import type { Invites } from "./invites.ts";
 import { inviteManagement, joinByInvite } from "./invites-flow.ts";
 import { ABOUT } from "./profile.ts";
@@ -14,13 +16,14 @@ export interface BotServices {
   residents: Residents;
   setup: Setup;
   invites: Invites;
+  commonItems: CommonItems;
   chatStates: ChatStates;
   /** Null hides the Scan button. */
   scannerUrl: string | null;
   log(line: string): void;
 }
 
-export function createBot(botToken: string, { residents, setup, invites, chatStates, scannerUrl, log }: BotServices): Bot {
+export function createBot(botToken: string, { residents, setup, invites, commonItems, chatStates, scannerUrl, log }: BotServices): Bot {
   const bot = new Bot(botToken);
 
   // A command or a Shop mode button leaves a half-finished flow (a new name, an Invite's
@@ -61,6 +64,7 @@ export function createBot(botToken: string, { residents, setup, invites, chatSta
   bot.chatType("private").use(inviteManagement(invites, residents, chatStates));
   bot.chatType("private").use(renameFlow(residents, chatStates));
   bot.chatType("private").use(shopMode(residents, scannerUrl));
+  bot.chatType("private").use(commonItemsFlow(commonItems, chatStates, log));
 
   bot.catch((error) => log(`Error while handling update ${error.ctx.update.update_id}: ${String(error.error)}`));
 

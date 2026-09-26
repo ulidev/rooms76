@@ -5,7 +5,10 @@ import type { Residents } from "./residents.ts";
 const SHOPPING_LIST = "🛒 Shopping list";
 const SOMETHING_RAN_OUT = "⚠️ Something ran out";
 const SCAN = "📷 Scan";
-const ADD_ITEM = "➕ Add item";
+export const ADD_ITEM = "➕ Add item";
+
+/** The reply to reporting what ran out, until Run Outs exist. */
+export const RUN_OUTS_COMING_SOON = "⚠️ Reporting what ran out is coming soon.";
 
 /** Shown with the keyboard, so Residents know what it's for. */
 export const SHOP_MODE_HINT = "Use the keyboard below to shop, report what ran out and add items.";
@@ -34,9 +37,8 @@ export function shopMode(residents: Residents, scannerUrl: string | null): Compo
 
   // Placeholders until each feature lands.
   composer.hears(SHOPPING_LIST, (ctx) => ctx.reply("🛒 The shopping list is coming soon."));
-  composer.hears(SOMETHING_RAN_OUT, (ctx) => ctx.reply("⚠️ Reporting what ran out is coming soon."));
+  composer.hears(SOMETHING_RAN_OUT, (ctx) => ctx.reply(RUN_OUTS_COMING_SOON));
   composer.hears(SCAN, (ctx) => ctx.reply("📷 Scanning is coming soon."));
-  composer.hears(ADD_ITEM, (ctx) => ctx.reply("➕ Adding items is coming soon."));
 
   return composer;
 }

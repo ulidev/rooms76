@@ -3,6 +3,7 @@
 import type { Api, Bot } from "grammy";
 import { createBot } from "./bot.ts";
 import { createChatStates } from "./chat-states.ts";
+import { createCommonItems } from "./common-items.ts";
 import type { Clock } from "./clock.ts";
 import { readConfig } from "./config.ts";
 import { openDatabase } from "./db/database.ts";
@@ -43,6 +44,7 @@ export async function startApp(options: StartOptions): Promise<App> {
       residents,
       setup,
       invites: createInvites(database.db, clock, config.apartmentTimeZone, residents),
+      commonItems: createCommonItems(database.db, clock, config.apartmentTimeZone),
       chatStates: createChatStates(database.db),
       scannerUrl: config.scannerUrl,
       log,

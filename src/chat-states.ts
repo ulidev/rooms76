@@ -15,7 +15,14 @@ export type ChatState =
   /** Waiting for a Resident's new name. */
   | { flow: "rename" }
   /** Waiting for an Admin to type the move-in date of an Invite for this Room. */
-  | { flow: "invite-date"; roomId: number };
+  | { flow: "invite-date"; roomId: number }
+  /** Waiting for the name of a new Common Item, after ➕ Add item. */
+  | { flow: "item-name" }
+  /**
+   * A new Common Item offered or being added, in this bot message: its buttons (add it,
+   * pick a rough guess) act on this name, and are out of date on any other message.
+   */
+  | { flow: "new-item"; name: string; messageId: number };
 
 export interface ChatStates {
   get(chatId: number): ChatState | undefined;

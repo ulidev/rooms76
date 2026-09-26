@@ -32,15 +32,14 @@ test("a Resident's /start greets them in their Room with the Shop mode keyboard"
 test("the Shop mode buttons whose features don't exist yet say so", async () => {
   await apartmentSetUpByLena();
 
-  for (const button of ["🛒 Shopping list", "⚠️ Something ran out", "📷 Scan", "➕ Add item"]) {
+  for (const button of ["🛒 Shopping list", "⚠️ Something ran out", "📷 Scan"]) {
     await bot.sendPrivateMessage(lena, button);
   }
 
-  expect(bot.messagesTo(lena.id).slice(-4)).toEqual([
+  expect(bot.messagesTo(lena.id).slice(-3)).toEqual([
     "🛒 The shopping list is coming soon.",
     "⚠️ Reporting what ran out is coming soon.",
     "📷 Scanning is coming soon.",
-    "➕ Adding items is coming soon.",
   ]);
 });
 
